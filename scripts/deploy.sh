@@ -33,6 +33,8 @@ set +a
 export DJANGO_SETTINGS_MODULE=config.settings
 echo "== migrate =="
 "$PYTHON" manage.py migrate --noinput
+echo "== ensure account (unusable password until changepassword) =="
+"$PYTHON" scripts/ensure_account.py
 echo "== collectstatic =="
 "$PYTHON" manage.py collectstatic --noinput
 echo "== export openapi =="
@@ -43,8 +45,19 @@ install -m 644 "$ROOT/deploy/evolving-cook-django.service" \
   "$HOME/.config/systemd/user/$UNIT"
 
 systemctl --user daemon-reload
-systemctl --user enable --now "$UNIT"
-systemctl --user restart "$UNIT"
+systemctl --user enable "$UNIT"
+# Prefer restart; if unavailable mid-session, HUP gunicorn master
+if systemctl --user restart "$UNIT"; then
+  :
+else
+  echo "systemctl restart unavailable; sending HUP to master" >&2
+  MAIN=$(systemctl --user show "$UNIT" -p MainPID --value)
+  if [[ -n "$MAIN" && "$MAIN" != "0" ]]; then
+    kill -HUP "$MAIN" || true
+  else
+    systemctl --user start "$UNIT"
+  fi
+fi
 sleep 1
 systemctl --user --no-pager --full status "$UNIT" || true
 
