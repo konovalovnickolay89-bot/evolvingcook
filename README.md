@@ -11,7 +11,7 @@
 |-------|--------|
 | FE (CORS) | `https://evolvingcook.grok.me` |
 | API public | `https://api.apidiscoverysolution.uk` → tunnel → `127.0.0.1:8000` |
-| Contract | see `backend/` live `/api/v1/version` (0.1.17+) |
+| Contract | see `backend/` live `/api/v1/version` (0.1.18+) |
 
 ## Backend (this host)
 
@@ -33,3 +33,7 @@ npm run dev
 ```
 
 See `ORIGIN.md` for published origin / Vite `allowedHosts`.
+
+## FE handoff
+
+See `backend/docs/FE-SECTION-MODES.md` (Section Modes + Assist contract for Grok).
