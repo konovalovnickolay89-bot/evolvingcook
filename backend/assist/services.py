@@ -275,7 +275,15 @@ def proposal_has_structure(body: dict | None) -> bool:
         return bool(str(body.get("title") or "").strip()) and bool(
             str(body.get("working") or "").strip()
         )
-    if target in {"planned_qty", "order_packs", "new_line", "component_fix"}:
+    if target == "component_fill":
+        comps = body.get("components")
+        return isinstance(comps, list) and len(comps) > 0
+    if target == "order_packs":
+        lines = body.get("lines") or body.get("order_lines")
+        return bool(lines) or bool(body.get("item_id") or body.get("supplier_item_id"))
+    if target == "new_line":
+        return bool(str(body.get("name") or body.get("line_name") or "").strip())
+    if target == "planned_qty":
         return True
     note = body.get("note")
     if isinstance(note, str) and note.strip():
@@ -806,6 +814,41 @@ def enqueue_assist_job(kind: str, context: dict) -> AssistJob:
     except SectionModeError as exc:
         raise AssistError(str(exc), code=exc.code) from exc
 
+    # menu_completeness / order_suggest: deterministic scaffold (no A2A)
+    if kind in (AssistJob.Kind.MENU_COMPLETENESS, "menu_completeness"):
+        from datetime import date as date_cls
+        from planning.ordering_assist import ensure_menu_completeness_proposals
+
+        sd_raw = (context or {}).get("service_date")
+        sec = (context or {}).get("section")
+        if not sec or not sd_raw:
+            raise AssistError(
+                "menu_completeness requires context.section and context.service_date",
+                code="bad_context",
+            )
+        sd = sd_raw if hasattr(sd_raw, "isoformat") else date_cls.fromisoformat(str(sd_raw)[:10])
+        ensure_menu_completeness_proposals(service_date=sd, section=str(sec))
+        return AssistJob.objects.create(
+            kind=kind, context=context, status=AssistJob.Status.SUCCEEDED
+        )
+
+    if kind in (AssistJob.Kind.ORDER_SUGGEST, "order_suggest"):
+        from datetime import date as date_cls
+        from planning.ordering_assist import ensure_order_suggest_from_board
+
+        sd_raw = (context or {}).get("service_date")
+        sec = (context or {}).get("section")
+        if not sec or not sd_raw:
+            raise AssistError(
+                "order_suggest requires context.section and context.service_date",
+                code="bad_context",
+            )
+        sd = sd_raw if hasattr(sd_raw, "isoformat") else date_cls.fromisoformat(str(sd_raw)[:10])
+        ensure_order_suggest_from_board(service_date=sd, section=str(sec))
+        return AssistJob.objects.create(
+            kind=kind, context=context, status=AssistJob.Status.SUCCEEDED
+        )
+
     # prep_plan: deterministic scaffold proposals (no A2A required for v1)
     if kind in (AssistJob.Kind.PREP_PLAN, "prep_plan"):
         from datetime import date as date_cls
@@ -1006,14 +1049,66 @@ def accept_assist_proposal(proposal_id: int) -> AssistProposal:
         raise AssistError("Cannot accept empty/no-structure proposal", code="no_structure")
 
     if proposal.kind == AssistJob.Kind.PARSE_NOTE or proposal.kind == "parse_note":
-        _apply_parse_note(proposal)
+        # Note tiers OR explicit v2 targets on parse_note body
+        target = str(body.get("target") or "line").strip().lower()
+        if target in {
+            "planned_qty",
+            "order_packs",
+            "new_line",
+            "component_fill",
+        }:
+            from assist.d15_targets import TargetApplyError, apply_d15_target
+
+            try:
+                apply_d15_target(proposal)
+            except TargetApplyError as exc:
+                raise AssistError(exc.message, code=exc.code) from exc
+        elif target == "prep_step":
+            _apply_prep_step(proposal)
+        else:
+            _apply_parse_note(proposal)
     elif proposal.kind == "prep_plan" or proposal.kind == AssistJob.Kind.PREP_PLAN:
         _apply_prep_step(proposal)
+    elif proposal.kind in {
+        "menu_completeness",
+        "order_suggest",
+        "qty_draft",
+        "morning_qty",
+        AssistJob.Kind.MENU_COMPLETENESS,
+        AssistJob.Kind.ORDER_SUGGEST,
+        AssistJob.Kind.QTY_DRAFT,
+        AssistJob.Kind.MORNING_QTY,
+    }:
+        from assist.d15_targets import TargetApplyError, apply_d15_target
+
+        try:
+            apply_d15_target(proposal)
+        except TargetApplyError as exc:
+            raise AssistError(exc.message, code=exc.code) from exc
     else:
-        raise AssistError(
-            f"no accept handler for kind={proposal.kind}",
-            code="unknown_kind",
-        )
+        # Fallback: body.target drives D15 handlers
+        target = str(body.get("target") or "").strip().lower()
+        if target in {
+            "planned_qty",
+            "order_packs",
+            "new_line",
+            "component_fill",
+            "prep_step",
+        }:
+            if target == "prep_step":
+                _apply_prep_step(proposal)
+            else:
+                from assist.d15_targets import TargetApplyError, apply_d15_target
+
+                try:
+                    apply_d15_target(proposal)
+                except TargetApplyError as exc:
+                    raise AssistError(exc.message, code=exc.code) from exc
+        else:
+            raise AssistError(
+                f"no accept handler for kind={proposal.kind}",
+                code="unknown_kind",
+            )
 
     proposal.status = AssistProposal.Status.ACCEPTED
     proposal.decided_at = timezone.now()

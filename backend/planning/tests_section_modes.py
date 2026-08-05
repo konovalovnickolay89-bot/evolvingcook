@@ -17,6 +17,7 @@ from planning.section_modes import (
 
 class SectionSettingsTests(TestCase):
     def test_ensure_six_null_mode(self):
+        SectionSetting.objects.all().delete()
         rows = ensure_all_section_settings()
         self.assertEqual(len(rows), 6)
         for r in rows:

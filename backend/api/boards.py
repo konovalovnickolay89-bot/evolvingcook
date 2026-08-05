@@ -167,6 +167,12 @@ class LineComponentOut(Schema):
     unit: str
     done: bool
     sort_order: int
+    # D15 ordering-mode stock dots
+    stock_status: str | None = None
+    stock_status_text: str | None = None
+    stock_qty: float | None = None
+    on_order_qty: float | None = None
+    supplier_code: str | None = None
 
 
 class LineEventOut(Schema):
@@ -211,6 +217,10 @@ class ProductionLineOut(Schema):
     components: list[LineComponentOut]
     events: list[LineEventOut]
     wave_allocations: list[WaveAllocationOut] = []
+    # D15 ordering-mode dish summary (omit/null in counts mode)
+    ingredient_count: int | None = None
+    to_order_count: int | None = None
+    order_summary_label: str | None = None
 
 
 class WaveOut(Schema):
@@ -279,6 +289,7 @@ class BoardOut(Schema):
     guided: bool = False
     mode_recommendation: str | None = None
     prep_plan: dict[str, Any] | None = None
+    order_assist: dict[str, Any] | None = None
 
 
 class LineOut(Schema):
@@ -322,9 +333,9 @@ def _http_planning(exc: PlanningError) -> HttpError:
     return HttpError(status, f"{exc.code}: {exc.message}")
 
 
-def _component_out(c: LineComponent) -> dict:
+def _component_out(c: LineComponent, *, ordering_mode: bool = False) -> dict:
     item = c.item if c.item_id else None
-    return {
+    base = {
         "id": c.pk,
         "item_id": c.item_id,
         "item_name": item.name if item is not None else None,
@@ -337,6 +348,14 @@ def _component_out(c: LineComponent) -> dict:
         "done": c.done,
         "sort_order": c.sort_order,
     }
+    if ordering_mode:
+        try:
+            from planning.ordering_assist import enrich_component_dict
+
+            return enrich_component_dict(base, ordering_mode=True)
+        except Exception:  # noqa: BLE001
+            return base
+    return base
 
 
 def _alloc_out(a) -> dict:
@@ -348,7 +367,13 @@ def _alloc_out(a) -> dict:
     }
 
 
-def _line_out(line: ProductionLine, *, events_limit: int = 20, pending_map: dict | None = None) -> dict:
+def _line_out(
+    line: ProductionLine,
+    *,
+    events_limit: int = 20,
+    pending_map: dict | None = None,
+    ordering_mode: bool = False,
+) -> dict:
     events = list(line.events.all()[:events_limit])
     item = line.item if line.item_id else None
     tmpl = line.template if line.template_id else None
@@ -358,7 +383,10 @@ def _line_out(line: ProductionLine, *, events_limit: int = 20, pending_map: dict
     pending = None
     if pending_map is not None:
         pending = pending_map.get(line.pk)
-    return {
+    comps = [
+        _component_out(c, ordering_mode=ordering_mode) for c in line.components.all()
+    ]
+    out = {
         "id": line.pk,
         "name": line.name,
         "mode": line.mode,
@@ -384,7 +412,7 @@ def _line_out(line: ProductionLine, *, events_limit: int = 20, pending_map: dict
         "sort_order": line.sort_order,
         "yield_per_cover": tmpl.yield_per_cover if tmpl is not None else None,
         "pending_proposal": pending,
-        "components": [_component_out(c) for c in line.components.all()],
+        "components": comps,
         "events": [
             {
                 "id": e.pk,
@@ -396,6 +424,19 @@ def _line_out(line: ProductionLine, *, events_limit: int = 20, pending_map: dict
         ],
         "wave_allocations": allocs,
     }
+    if ordering_mode:
+        try:
+            from planning.ordering_assist import dish_order_summary
+
+            summary = dish_order_summary(comps)
+            out["ingredient_count"] = summary["ingredient_count"]
+            out["to_order_count"] = summary["to_order_count"]
+            out["order_summary_label"] = summary["label"]
+        except Exception:  # noqa: BLE001
+            out["ingredient_count"] = len(comps)
+            out["to_order_count"] = 0
+            out["order_summary_label"] = f"{len(comps)} items"
+    return out
 
 
 def _wave_out(w: Wave) -> dict:
@@ -566,18 +607,6 @@ def _board_payload(service_date: date, section: str) -> dict:
         pending_map = pending_proposals_for_line_ids([ln.pk for ln in lines])
     except Exception:  # noqa: BLE001
         pending_map = {}
-    line_outs = [_line_out(ln, pending_map=pending_map) for ln in lines]
-    ticked_count = sum(1 for ln in lines if ln.ticked)
-    waves = [_wave_out(w) for w in sec.waves.all()]
-    outlets = [
-        {
-            "id": o.pk,
-            "outlet": o.outlet,
-            "active": o.active,
-            "covers": o.covers,
-        }
-        for o in sec.outlets.all()
-    ]
     try:
         from planning.section_modes import board_mode_fields
 
@@ -589,6 +618,22 @@ def _board_payload(service_date: date, section: str) -> dict:
             "guided": section in ("banqueting", "banquet_buffet"),
             "mode_recommendation": None,
         }
+    ordering_mode = mode_fields.get("section_mode") == "ordering"
+    line_outs = [
+        _line_out(ln, pending_map=pending_map, ordering_mode=ordering_mode)
+        for ln in lines
+    ]
+    ticked_count = sum(1 for ln in lines if ln.ticked)
+    waves = [_wave_out(w) for w in sec.waves.all()]
+    outlets = [
+        {
+            "id": o.pk,
+            "outlet": o.outlet,
+            "active": o.active,
+            "covers": o.covers,
+        }
+        for o in sec.outlets.all()
+    ]
     prep_plan = None
     if mode_fields.get("guided") and mode_fields.get("section_mode") == "counts":
         try:
@@ -597,6 +642,26 @@ def _board_payload(service_date: date, section: str) -> dict:
             prep_plan = prep_plan_board_payload(section, service_date)
         except Exception:  # noqa: BLE001
             prep_plan = None
+    order_assist = None
+    if ordering_mode:
+        try:
+            from planning.ordering_assist import (
+                board_order_assist_payload,
+                ensure_menu_completeness_proposals,
+                ensure_order_suggest_from_board,
+            )
+
+            ensure_menu_completeness_proposals(
+                service_date=service_date, section=section
+            )
+            ensure_order_suggest_from_board(
+                service_date=service_date, section=section
+            )
+            order_assist = board_order_assist_payload(
+                section=section, service_date=service_date
+            )
+        except Exception:  # noqa: BLE001
+            order_assist = None
     return {
         "service_date": day.service_date,
         "day_status": day.status,
@@ -617,6 +682,7 @@ def _board_payload(service_date: date, section: str) -> dict:
         "ticked_count": ticked_count,
         **mode_fields,
         "prep_plan": prep_plan,
+        "order_assist": order_assist,
     }
 
 

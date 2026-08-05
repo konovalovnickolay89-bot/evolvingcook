@@ -1,6 +1,25 @@
 {
   "components": {
     "schemas": {
+      "AcceptIn": {
+        "description": "Optional proposal overlay before accept (FE Adjust / fill components).",
+        "properties": {
+          "proposal": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal"
+          }
+        },
+        "title": "AcceptIn",
+        "type": "object"
+      },
       "BalanceOut": {
         "properties": {
           "area_id": {
@@ -189,6 +208,18 @@
               }
             ],
             "title": "Occupancy Rooms"
+          },
+          "order_assist": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Assist"
           },
           "outlets": {
             "default": [],
@@ -803,6 +834,17 @@
             "title": "Name",
             "type": "string"
           },
+          "on_order_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "On Order Qty"
+          },
           "planned_qty": {
             "title": "Planned Qty",
             "type": [
@@ -813,6 +855,50 @@
           "sort_order": {
             "title": "Sort Order",
             "type": "integer"
+          },
+          "stock_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Qty"
+          },
+          "stock_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Status"
+          },
+          "stock_status_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock Status Text"
+          },
+          "supplier_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Code"
           },
           "supplier_item_id": {
             "anyOf": [
@@ -1350,6 +1436,17 @@
             "title": "Id",
             "type": "integer"
           },
+          "ingredient_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ingredient Count"
+          },
           "item_house_made": {
             "anyOf": [
               {
@@ -1409,6 +1506,17 @@
           "notes": {
             "title": "Notes",
             "type": "string"
+          },
+          "order_summary_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Summary Label"
           },
           "par_level": {
             "title": "Par Level",
@@ -1478,6 +1586,17 @@
           "ticked": {
             "title": "Ticked",
             "type": "boolean"
+          },
+          "to_order_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Order Count"
           },
           "unit": {
             "title": "Unit",
@@ -2959,7 +3078,7 @@
   "info": {
     "description": "Backend contract for Evolving Cook. Auth: Bearer token from /auth/login (Django signing, 30 days). 401 is never a reason to drop client data \u2014 re-auth and retry. Walk batch submit 401: re-auth and retry the batch; never discard line payloads. Phase 1.5: /boards/* MEP service boards (covers never required). Phase 2: /walks/* lifecycle + /purchasing/* PO draft\u2192send + delivery receipt. Phase 3: /inventory/* append-only stock ledger (balances, movements, waste, count_adjustment, transfer). Delivery complete \u2192 receipt movements; walk submit/lock \u2192 theoretical + unexplained variance (never auto-correct). Phase 4: /boards/* full planner \u2014 banquet BEO covers + waves + WaveAllocation (one line across waves), produce scale formula proposed_qty = scaling_covers * template.yield_per_cover (null yield \u2192 null proposed), canteen produce qty entered (not covers-derived), day close + outturn. Covers never required outside banquet*. D12/D14: line notes (today) + template_notes (dish template, every day) + item notes/house_made. NOTE\u2192ASSIST v2: note-save auto-enqueues parse_note; board lines carry pending_proposal inline; accept target line|template|item. D15: /sections/* section mode (counts|ordering, null until chef chooses); BoardOut carries section_mode, mode_prompt_needed, guided, mode_recommendation, prep_plan. Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); B15 explode via POST /assist/explode. Internal agent-events is NOT on /api/v1.",
     "title": "Evolving Cook API",
-    "version": "0.1.15"
+    "version": "0.1.16"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -3251,6 +3370,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
