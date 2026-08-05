@@ -1,0 +1,14 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Apply to {{ items|length }} selected item(s).</p>
+<form method="post">{% csrf_token %}
+  {{ form.as_p }}
+  {% for obj in items %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ obj.pk }}">
+  {% endfor %}
+  <input type="hidden" name="action" value="set_default_area_bulk">
+  <input type="submit" name="apply" value="Set area">
+  <a href=".." style="margin-left:1em">Cancel</a>
+</form>
+{% endblock %}

@@ -1,0 +1,55 @@
+dish,item,supplier_code,supplier,notes
+KIDS VEGGIE TOTS,Broccoli and cauliflower tots,135534,BRAKES,kids starter
+KIDS VEGGIE TOTS,Aioli,129213,BRAKES,kids starter
+KIDS CHEESY GARLIC BREAD,Sourdough bread,2104185,LBP,kids starter
+KIDS CHEESY GARLIC BREAD,Garlic and herb butter,127207,BRAKES,kids starter
+KIDS CHEESY GARLIC BREAD,Diced mozzarella,130980,BRAKES,kids starter
+KIDS HUMMUS SNACK PLATE,Velvet hummus,129209,BRAKES,kids starter
+KIDS HUMMUS SNACK PLATE,Cucumber,13409,UFC,kids starter
+KIDS HUMMUS SNACK PLATE,Red pepper,525271,BRAKES,kids starter
+KIDS HUMMUS SNACK PLATE,"Flatbread, seeded",5000594,BRAKES,kids starter
+KIDS CHEESEBURGER,"6oz Beef Patty, halved",1CB6,BPM,kids main
+KIDS CHEESEBURGER,Brioche bun mini,2104204,LBP,kids main
+KIDS CHEESEBURGER,American burger cheese,106923,BRAKES,kids main
+KIDS CHEESEBURGER,"Red onion, sliced",11812,UFC,kids main
+KIDS CHEESEBURGER,Gem Lettuce,12934,UFC,kids main
+KIDS CHEESEBURGER,Plum tomato,10333,BRAKES,kids main
+KIDS CHEESEBURGER,Aioli,129213,BRAKES,kids main
+KIDS CHEESEBURGER,McCain Thin Cut Fries,34495,BRAKES,kids main
+KIDS BANGERS AND MASH,Sausage,S26,BPM,kids main
+KIDS BANGERS AND MASH,Green beans,10906,UFC,kids main
+KIDS BANGERS AND MASH,"Knorr gluten free, vegan gravy mix",28347,BRAKES,kids main
+KIDS BANGERS AND MASH,Mashed potato,123280,BRAKES,kids main
+KIDS BANGERS AND MASH,Plant cream,128803,BRAKES,kids main
+KIDS MAC AND CHEESE,Macaroni,470977,BRAKES,kids main — kids recipe (nacho sauce)
+KIDS MAC AND CHEESE,Cheese Sauce Nacho,134568,BRAKES,kids main
+KIDS MAC AND CHEESE,Panko Bread Crumbs,135538,BRAKES,kids main
+KIDS MAC AND CHEESE,Grated Cheddar,71268,BRAKES,kids main
+KIDS TOMATO PASTA,Fusilli pasta,145177,BRAKES,kids main
+KIDS TOMATO PASTA,Tomato sauce,84891,BRAKES,kids main
+KIDS TOMATO PASTA,"Grana padano, grated",149914,BRAKES,kids main
+KIDS MARGHERITA PIZZA,"Focaccia base, Scrocchiarella",5003923,BRAKES,kids main
+KIDS MARGHERITA PIZZA,Sauce,60587,BRAKES,kids main
+KIDS MARGHERITA PIZZA,Cubed mozzarella,130980,BRAKES,kids main
+KIDS PEPPERONI PIZZA,"Focaccia base, Scrocchiarella",5003923,BRAKES,kids main
+KIDS PEPPERONI PIZZA,Sauce,60587,BRAKES,kids main
+KIDS PEPPERONI PIZZA,Cubed mozzarella,130980,BRAKES,kids main
+KIDS PEPPERONI PIZZA,Pepperoni,3780,BRAKES,kids main
+KIDS FISH AND CHIPS,Portico Premium Atlantic Line Caught MSC Cod fillets,"150351, 5006900",BRAKES,kids main; dual code
+KIDS FISH AND CHIPS,McCain Steak Thick Cut Chips,34484,BRAKES,kids main
+KIDS FISH AND CHIPS,Tenderstem broccoli,114207,BRAKES,kids main
+KIDS FISH AND CHIPS,Batter mix,111844,BRAKES,kids main
+KIDS FISH AND CHIPS,Lemon,10154,UFC,kids main
+KIDS CHICKEN KYIV,This Isn't Chicken Kyiv,5003008,BRAKES,kids main; product name as printed
+KIDS CHICKEN KYIV,Green beans,10906,UFC,kids main
+KIDS CHICKEN KYIV,Sweet potato fries,121752,BRAKES,kids main
+KIDS DIY ETON MESS,Mini meringue kisses,134284,BRAKES,kids dessert
+KIDS DIY ETON MESS,Pineapple,455055,BRAKES,kids dessert
+KIDS DIY ETON MESS,Strawberry compote,591133,BRAKES,kids dessert
+KIDS DIY ETON MESS,Sprinkles,121589,BRAKES,kids dessert
+KIDS DIY ETON MESS,Whipped cream,136638,BRAKES,kids dessert
+KIDS SEASONAL FRUIT CUP,Fruit salad,70932,BRAKES,kids dessert
+KIDS SEASONAL FRUIT CUP,Blueberries,10408,UFC,kids dessert
+KIDS CHOCOLATE BROWNIE,Brownie,VGFBRO1001,DESTINY FOODS,kids dessert
+KIDS SCOOP OF JUDE'S ICE CREAM,"Vanilla ice cream, plant based",125069 / 591179,BRAKES,kids dessert; dual code
+KIDS SCOOP OF JUDE'S ICE CREAM,Jude's ice cream (various flavours),57084,BRAKES,kids dessert

@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django.contrib.postgres",
     "corsheaders",
+    "django_q",
     "core",
     "catalog",
     "walks",
@@ -86,7 +87,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "catalog" / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -177,8 +178,12 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = False  # tunnel hits plain HTTP on 127.0.0.1
 
 # --- App / contract versions ---
-APP_VERSION = env("APP_VERSION", "0.0.0")
-CONTRACT_VERSION = env("CONTRACT_VERSION", "0.0.0")
+APP_VERSION = env("APP_VERSION", "0.1.13")
+CONTRACT_VERSION = env("CONTRACT_VERSION", "0.1.13")
+
+# Phase 3 / D13: |counted − theoretical| at or below this → unexplained variance 0.
+# Absolute base-unit floor (not a percentage). Override via env if needed.
+VARIANCE_NOISE_FLOOR = env("VARIANCE_NOISE_FLOOR", "0.001")
 
 # Auth token (Django signing; no JWT lib)
 AUTH_TOKEN_SALT = "evolving-cook.auth.v1"
@@ -187,6 +192,44 @@ AUTH_TOKEN_MAX_AGE = 30 * 24 * 3600  # 30 days
 # Login rate limit: django-ratelimit keys (see api.auth)
 # 10 attempts / 5 minutes per IP — public posture; edge WAF may add more
 AUTH_LOGIN_RATELIMIT = env("AUTH_LOGIN_RATELIMIT", "10/5m")
+
+# Media (catalog ingest photo uploads); not public-facing beyond admin
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+
+# LLM provider D10 — Mistral via httpx (catalog.llm_provider). Live ingest blocked when unset.
+MISTRAL_API_KEY = env("MISTRAL_API_KEY", "") or ""
+LLM_MODEL = env("LLM_MODEL", "mistral-medium-latest")
+
+# Phase 5 / D11 — Hermes A2A assist (loopback only). Secrets in .env only.
+A2A_BASE_URL = env("A2A_BASE_URL", "http://127.0.0.1:9900") or "http://127.0.0.1:9900"
+A2A_TOKEN = env("A2A_TOKEN", "") or ""
+WEBHOOK_SECRET = env("WEBHOOK_SECRET", "") or ""
+A2A_PUSH_CALLBACK_URL = env(
+    "A2A_PUSH_CALLBACK_URL",
+    "http://127.0.0.1:8000/api/internal/agent-events",
+) or "http://127.0.0.1:8000/api/internal/agent-events"
+A2A_SEND_TIMEOUT = int(env("A2A_SEND_TIMEOUT", "60") or "60")
+# Reject non-loopback REMOTE_ADDR on agent-events when True (production default).
+A2A_INTERNAL_LOOPBACK_ONLY = env_bool("A2A_INTERNAL_LOOPBACK_ONLY", True)
+
+# NOTE→ASSIST v2
+ASSIST_NOTE_MIN_CHARS = int(env("ASSIST_NOTE_MIN_CHARS", "15") or "15")
+ASSIST_NOTE_DEDUPE_SECONDS = int(env("ASSIST_NOTE_DEDUPE_SECONDS", "3600") or "3600")
+ASSIST_NOTE_RATE_PER_LINE_HOUR = int(env("ASSIST_NOTE_RATE_PER_LINE_HOUR", "12") or "12")
+
+# django-q2 — ORM broker only (no Redis). LLM jobs only.
+Q_CLUSTER = {
+    "name": "evolving-cook",
+    "workers": 1,
+    "timeout": 180,
+    "retry": 240,
+    "queue_limit": 50,
+    "bulk": 5,
+    "orm": "default",
+    "catch_up": False,
+    "label": "Evolving Cook Q",
+}
 
 LOGGING = {
     "version": 1,

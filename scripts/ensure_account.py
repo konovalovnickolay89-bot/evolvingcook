@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Create the single staff account with unusable password (Mykola sets via changepassword)."""
+"""Create the single staff account if missing.
+
+Password is never invented here. On create only: unusable password until
+Mykola runs manage.py changepassword. Existing accounts keep their password.
+"""
 import os
 import sys
 from pathlib import Path
@@ -25,12 +29,22 @@ u, created = User.objects.get_or_create(
     username=username,
     defaults={"email": email, "is_staff": True, "is_superuser": True},
 )
-if not created:
-    u.email = email
-    u.is_staff = True
-    u.is_superuser = True
-u.set_unusable_password()
-u.save()
+if created:
+    u.set_unusable_password()
+    u.save()
+else:
+    changed = False
+    if u.email != email:
+        u.email = email
+        changed = True
+    if not u.is_staff:
+        u.is_staff = True
+        changed = True
+    if not u.is_superuser:
+        u.is_superuser = True
+        changed = True
+    if changed:
+        u.save()
 print(
     f"user={u.username} email={u.email} created={created} "
     f"has_usable_password={u.has_usable_password()}"

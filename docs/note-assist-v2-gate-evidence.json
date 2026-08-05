@@ -1,0 +1,128 @@
+{
+  "steps": [
+    {
+      "name": "contract",
+      "ok": true,
+      "detail": "0.1.13"
+    },
+    {
+      "name": "empty_text_400",
+      "ok": true,
+      "detail": {
+        "code": "empty_text"
+      }
+    },
+    {
+      "name": "notes_alias_normalize",
+      "ok": true,
+      "detail": {
+        "text": "Always check mac sauce consistency every day at pass",
+        "text_hash": "3772929877272194c571b96ab3b63a8d",
+        "line_id": 204,
+        "line_name": "BUFFALO CHICKEN WINGS",
+        "section": "a_la_carte",
+        "service_date": "2026-08-13",
+        "template_id": 1,
+        "template_name": "BUFFALO CHICKEN WINGS"
+      }
+    },
+    {
+      "name": "api_empty_text",
+      "ok": true,
+      "detail": {
+        "detail": "parse_note requires non-empty text (or notes alias)",
+        "code": "empty_text"
+      }
+    },
+    {
+      "name": "auto_enqueue_dedupe",
+      "ok": true,
+      "detail": {
+        "note_saved": true,
+        "first_job": 15,
+        "dup_is_none": true
+      }
+    },
+    {
+      "name": "accept_line",
+      "ok": true,
+      "detail": {
+        "notes": "ran out breadcrumbs \u2014 panko today",
+        "action": "created"
+      }
+    },
+    {
+      "name": "accept_template",
+      "ok": true,
+      "detail": {
+        "template_notes": "Check sauce consistency at pass daily"
+      }
+    },
+    {
+      "name": "accept_item",
+      "ok": true,
+      "detail": {
+        "house_made": true,
+        "notes": "house cheddar cheese sauce",
+        "comps": 1
+      }
+    },
+    {
+      "name": "no_structure_silent",
+      "ok": true,
+      "detail": {
+        "ok": true,
+        "action": "no_structure",
+        "task_id": "gate-v2-ns-1",
+        "job_id": 19
+      }
+    },
+    {
+      "name": "parse_error_not_accept",
+      "ok": true,
+      "detail": {
+        "code": "not_accept_able",
+        "action": "created"
+      }
+    },
+    {
+      "name": "board_template_and_pending",
+      "ok": true,
+      "detail": {
+        "template_notes": "Check sauce consistency at pass daily",
+        "pending": {
+          "id": 12,
+          "kind": "parse_note",
+          "status": "pending",
+          "target": "line",
+          "target_confidence": "low",
+          "note": "pending inline",
+          "house_made": null,
+          "rationale": "unsure scope",
+          "parse_error": null,
+          "accept_able": true,
+          "task_id": "gate-v2-pending-board",
+          "created_at": "2026-08-04T11:40:56.283718+00:00"
+        }
+      }
+    },
+    {
+      "name": "template_note_next_day",
+      "ok": true,
+      "detail": {
+        "template_notes": "Check sauce consistency at pass daily"
+      }
+    },
+    {
+      "name": "openapi",
+      "ok": true,
+      "detail": {
+        "version": "0.1.13",
+        "assist_jobs": true
+      }
+    }
+  ],
+  "failed": [],
+  "gate": "ok",
+  "contract": "0.1.13"
+}

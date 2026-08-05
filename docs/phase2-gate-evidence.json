@@ -1,0 +1,159 @@
+{
+  "fixtures": {
+    "area1": {
+      "id": 8,
+      "name": "a la carte fridge"
+    },
+    "area2": {
+      "id": 4,
+      "name": "breakfast freezer"
+    },
+    "item_a": {
+      "id": 1,
+      "name": "Italian mixed olives",
+      "si": 1,
+      "pack": "10"
+    },
+    "item_b": {
+      "id": 2,
+      "name": "Focaccia base, Scrocchiarella",
+      "si": 2,
+      "pack": "5"
+    },
+    "note": "walk_order left null on all areas (not invented)"
+  },
+  "version": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.7",
+      "contract_version": "0.1.7",
+      "api": "v1"
+    }
+  },
+  "start_walk": {
+    "http": 200,
+    "id": 3,
+    "line_count": 101,
+    "status": "draft"
+  },
+  "batch1": {
+    "http": 200,
+    "line_count": 102,
+    "counted_count": 2,
+    "skipped_count": 1,
+    "sample": [
+      {
+        "item_id": 1,
+        "area_id": 8,
+        "counted_qty": 20,
+        "skipped": false,
+        "qty_base": 20
+      },
+      {
+        "item_id": 2,
+        "area_id": 4,
+        "counted_qty": null,
+        "skipped": true,
+        "qty_base": null
+      },
+      {
+        "item_id": 1,
+        "area_id": 4,
+        "counted_qty": 10,
+        "skipped": false,
+        "qty_base": 10
+      }
+    ]
+  },
+  "batch_idempotent": {
+    "http": 200,
+    "line_count_before": 102,
+    "line_count_after": 102,
+    "duplicate": false
+  },
+  "decimal_json_numbers": {
+    "raw_snippet_has_quoted_decimal": false,
+    "raw_has_number_qty": true
+  },
+  "submit": {
+    "http": 200,
+    "status": "submitted"
+  },
+  "lock": {
+    "http": 200,
+    "status": "locked"
+  },
+  "order_proposal": {
+    "http": 200,
+    "po_ids": [
+      2
+    ],
+    "pos": [
+      {
+        "id": 2,
+        "supplier_id": 1,
+        "supplier_name": "BELAZU",
+        "walk_id": 3,
+        "order_date": "2026-08-04",
+        "delivery_date": "2026-08-05",
+        "status": "draft",
+        "total": null,
+        "notes": "",
+        "sent_at": null,
+        "created_at": "2026-08-04T01:19:53.250Z",
+        "line_count": 1,
+        "lines": [
+          {
+            "id": 2,
+            "supplier_item_id": 1,
+            "item_id": 1,
+            "item_name": "Italian mixed olives",
+            "supplier_code": "OC174",
+            "pack_description": "",
+            "pack_qty": 10,
+            "proposed_packs": 12,
+            "packs": 12,
+            "qty_base": 120,
+            "price": null,
+            "par": 150,
+            "counted": 30,
+            "on_order": 0,
+            "shortfall": 120,
+            "note": ""
+          }
+        ]
+      }
+    ]
+  },
+  "shortfall_sum_check": {
+    "item_id": 1,
+    "par": 150,
+    "counted": 30,
+    "on_order": 0,
+    "shortfall": 120,
+    "proposed_packs": 12,
+    "expected_shortfall_item_a": 120,
+    "expected_packs_item_a": 12,
+    "decimal_fields_are_json_numbers": true
+  },
+  "po_send": {
+    "http": 200,
+    "status": "sent",
+    "sent_at": "2026-08-04T01:19:53.264Z"
+  },
+  "delivery": {
+    "http": 200,
+    "id": 2,
+    "status": "complete",
+    "line_count": 1,
+    "notes_sample": [
+      "short"
+    ]
+  },
+  "batch_401": {
+    "http": 401,
+    "body": {
+      "detail": "Unauthorized"
+    }
+  }
+}

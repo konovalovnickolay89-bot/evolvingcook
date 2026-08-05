@@ -50,7 +50,7 @@ v1 died because one day-level covers dial (default 120) scaled every section's q
 | Auth | `/admin/*` = Cloudflare Access (path-scoped). `/api/v1/*` = Bearer token (see §6) |
 | CORS | Exact env-driven allowlist. Preview: regex `^https://.*\.grok-sandbox\.com$`. Published origin added later — **never hardcode it** |
 | Sections | `breakfast_buffet, a_la_carte, banquet_buffet, banqueting, canteen, skybar`. Executive lounge = outlet of ALC (`supports_lounge`), not a peer. No hot veg section. Skybar food only |
-| Storage areas (seed, exactly these 8) | main freezer · veg fridge · dairy+breakfast fridge · breakfast freezer · dry store · fruit+pastry fridge · pastry freezer · à la carte fridge. `walk_order` NOT yet known — leave orderable, do not guess |
+| Storage areas (seed) | main freezer · veg fridge · dairy+breakfast fridge · breakfast freezer · dry store · fruit+pastry fridge · pastry freezer · à la carte fridge · **meat fridge** (added). `walk_order` NOT yet known — leave orderable, do not guess |
 | Items | **Global, never section-scoped.** Same item lives in multiple areas simultaneously (normal case). Preps are made once, consumed by many sections |
 | Priority | **Items before supplier data** (name+unit is enough to exist); supplier/code/pack second (only ordering blocks on them); prices last, nullable |
 | Covers | **Scaling input for banqueting/banquet_buffet only** (BEO-driven). Optional and informational everywhere else — nothing ever blocks on a cover count. When used: per-section, labelled source, no global dial |
@@ -61,7 +61,7 @@ v1 died because one day-level covers dial (default 120) scaled every section's q
 
 ## 4. Stack (exactly this; nothing else)
 
-Python 3.12+ · **Django 5.2 LTS** · **PostgreSQL 15+** (verify; decides §8 B11) · `psycopg[binary]` · **django-ninja** (Pydantic schemas → auto OpenAPI = the contract) · `django-cors-headers` · `django-q2` ORM broker (LLM jobs only) · `whitenoise` (admin static only) · `gunicorn` bound `127.0.0.1:8000` · `uv` (fallback pip) · `pytest-django` + `factory-boy` + `hypothesis` (property tests for all arithmetic) · Anthropic API via `httpx`.
+Python 3.12+ · **Django 5.2 LTS** · **PostgreSQL 15+** (verify; decides §8 B11) · `psycopg[binary]` · **django-ninja** (Pydantic schemas → auto OpenAPI = the contract) · `django-cors-headers` · `django-q2` ORM broker (LLM jobs only) · `whitenoise` (admin static only) · `gunicorn` bound `127.0.0.1:8000` · `uv` (fallback pip) · `pytest-django` + `factory-boy` + `hypothesis` (property tests for all arithmetic) · **Mistral** chat completions via `httpx` (D10; default model `mistral-medium-latest`).
 
 **Not used:** DRF, Celery, Redis, Docker, nginx, Node.
 
@@ -202,10 +202,10 @@ CORS_PREFLIGHT_MAX_AGE = 86400   # Authorization header → every request prefli
 
 ### Phase 1 — catalogue
 
-- All catalog models + migrations. Seed the 8 storage areas (leave `walk_order` null/orderable)
+- All catalog models + migrations. Seed storage areas (leave `walk_order` null/orderable); includes meat fridge
 - **Admin is a product surface, not scaffolding:** `list_display` of scanned fields; `list_editable` for price/pack_qty/par; `list_filter` supplier/area/category/active; `search_fields` name + supplier_code; `autocomplete_fields` on every FK; `TabularInline` for UnitConversion + SupplierItem on Item; bulk actions (activate/deactivate, set area)
 - **Seed from the pack's real transcriptions** in `sheets/`: `alc-dish-sheet-p1.csv`, `alc-dish-sheet-p2.csv` (~85 items with supplier codes across 10 suppliers: Brakes, UFC, BPM, Belazu, H&B, LBP, Direct Seafood, Essential Cuisine, Braehead, Veg Express), `skybar-mep-list.csv` (~130 component names → items with no supplier — that's fine). Dedupe on (supplier, code). Rows marked "verify"/"uncertain" → import flagged unverified, never silently
-- `ingest_catalog`: photo/text upload → django-q2 job → Anthropic API strict-JSON extraction → review table flagged by confidence → accept writes Item + SupplierItem in one transaction. Extraction schema must handle the real sheet shape: **dish-organised, mixed suppliers, dual codes ("112724 / 591085"), alternative suppliers ("BPM or Brakes"), spec-in-name ("Chicken fillet 140g-170g"), rotated photos, no pack sizes or prices present.** Never guess a code (emit null + low confidence); never drop an item for missing supplier data; convert kg→g, L→ml at extraction; pack_qty in base units. Review UI = Django admin, bulk-first — **review speed matters more than extraction accuracy**
+- `ingest_catalog`: photo/text upload → django-q2 job → **Mistral** strict-JSON extraction (`MISTRAL_API_KEY`, model `LLM_MODEL` default `mistral-medium-latest`, httpx OpenAI-compatible) → review table flagged by confidence → accept writes Item + SupplierItem in one transaction. Extraction schema must handle the real sheet shape: **dish-organised, mixed suppliers, dual codes ("112724 / 591085"), alternative suppliers ("BPM or Brakes"), spec-in-name ("Chicken fillet 140g-170g"), rotated photos, no pack sizes or prices present.** Never guess a code (emit null + low confidence); never drop an item for missing supplier data; convert kg→g, L→ml at extraction; pack_qty in base units. Review UI = Django admin, bulk-first — **review speed matters more than extraction accuracy**
 - Prompt rules for extraction: JSON only, no prose/fences; `base_unit` ∈ {g,ml,ea}; flag ambiguous units rather than resolving
 
 **Gate:** 50+ real items usable in under an hour, mostly via ingest (if typing is faster, ingest is broken — fix before proceeding). A walk-style query over items with no supplier/par/price returns cleanly.
@@ -248,6 +248,12 @@ Also in Phase 4: produce-mode quantities for canteen boards (entered, not covers
 ### Phase 5 — LLM loop
 
 Recipes + explosion (B15), demand → proposals, assist verbs. All LLM output lands as `AssistProposal`; accept handlers write. Gate: proposals accepted/rejected with audit trail.
+
+**D11 (Hermes A2A assist — locked):** heavy assist tasks go **Hermes A2A v1.0 on loopback**, completion via **signed A2A push webhook** (no polling). Receiver: `POST /api/internal/agent-events` (loopback only — **not** on the tunnel-facing `/api/v1` router). Verify HMAC before touch; upsert proposal **idempotent on `task_id`**. Catalogue photo ingest stays **D10 Mistral**. Full lock: `docs/D11-HERMES-A2A-ASSIST.md`.
+
+**D12 (notes + house-made — locked):** ProductionLine/Item notes in board payload; `Item.house_made` + `ItemComponent` recipe-lite (admin inline); seed Asian slaw + aioli unverified; A2A task type `parse_note` in contract file; ordering ignores house_made until Phase 5. Full lock: `docs/D12-NOTES-HOUSE-MADE.md`.
+
+**D13 (purchasing scope + variance — locked):** `PurchaseOrder.scope` = `replenishment` (default) | `event`. Order proposal `on_order` sums **replenishment only**. Phase 3 variance = **unexplained** (never “error”); per-item noise floor; never auto-correct pars/balances. No global-inventory ambition. Full lock: `docs/D13-PURCHASING-SCOPE-VARIANCE.md`.
 
 ---
 

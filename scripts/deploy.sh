@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 UNIT="evolving-cook-django.service"
+QUNIT="evolving-cook-qcluster.service"
 VENV="$ROOT/.venv"
 PYTHON="$VENV/bin/python"
 GUNICORN="$VENV/bin/gunicorn"
@@ -43,9 +44,11 @@ echo "== export openapi =="
 mkdir -p "$HOME/.config/systemd/user"
 install -m 644 "$ROOT/deploy/evolving-cook-django.service" \
   "$HOME/.config/systemd/user/$UNIT"
+install -m 644 "$ROOT/deploy/evolving-cook-qcluster.service" \
+  "$HOME/.config/systemd/user/$QUNIT"
 
 systemctl --user daemon-reload
-systemctl --user enable "$UNIT"
+systemctl --user enable "$UNIT" "$QUNIT"
 # Prefer restart; if unavailable mid-session, HUP gunicorn master
 if systemctl --user restart "$UNIT"; then
   :
@@ -58,8 +61,10 @@ else
     systemctl --user start "$UNIT"
   fi
 fi
+systemctl --user restart "$QUNIT" || systemctl --user start "$QUNIT"
 sleep 1
 systemctl --user --no-pager --full status "$UNIT" || true
+systemctl --user --no-pager --full status "$QUNIT" || true
 
 echo "== local health =="
 curl -fsS -H "Host: api.apidiscoverysolution.uk" \
@@ -68,4 +73,4 @@ curl -fsS -H "Host: api.apidiscoverysolution.uk" \
   exit 1
 }
 echo
-echo "deploy_ok unit=$UNIT bind=127.0.0.1:8000"
+echo "deploy_ok unit=$UNIT qunit=$QUNIT bind=127.0.0.1:8000"

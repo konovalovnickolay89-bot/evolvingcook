@@ -22,6 +22,8 @@ media/
 db.sqlite3
 local_settings.py
 
+# django-q2 ORM broker tables live in Postgres (no local sqlite broker file)
+
 # Tooling
 .pytest_cache/
 .mypy_cache/
