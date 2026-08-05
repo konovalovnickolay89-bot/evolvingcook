@@ -1,0 +1,33 @@
+[Unit]
+Description=Evolving Cook Django API (127.0.0.1:8000)
+Documentation=file://%h/src/evolving-cook/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/src/evolving-cook
+Environment=HOME=%h
+Environment=PATH=%h/src/evolving-cook/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+EnvironmentFile=-%h/src/evolving-cook/.env
+ExecStart=%h/src/evolving-cook/.venv/bin/gunicorn \
+  --bind 127.0.0.1:8000 \
+  --workers 2 \
+  --threads 2 \
+  --timeout 60 \
+  --access-logfile - \
+  --error-logfile - \
+  --capture-output \
+  config.wsgi:application
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=20s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+
+# Bind is loopback-only. Public traffic via Cloudflare tunnel → :8000.
+
+[Install]
+WantedBy=default.target

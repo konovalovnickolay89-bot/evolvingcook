@@ -1,0 +1,270 @@
+{
+  "contract_expected": "0.1.11",
+  "gate_date": "2026-08-20",
+  "units": {
+    "django": "active",
+    "qcluster": "active"
+  },
+  "seed_templates": {
+    "banquet_with_yield": {
+      "id": 45,
+      "created": false,
+      "ypc": "1.0"
+    },
+    "banquet_null_yield": {
+      "id": 46,
+      "ypc": null
+    },
+    "buffet": {
+      "id": 47,
+      "ypc": "0.5"
+    }
+  },
+  "version_local": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.11",
+      "contract_version": "0.1.11",
+      "api": "v1"
+    }
+  },
+  "version_public": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.11",
+      "contract_version": "0.1.11",
+      "api": "v1"
+    }
+  },
+  "open_day": {
+    "http": 200,
+    "status": "open",
+    "sections": [
+      {
+        "section": "banquet_buffet",
+        "covers": null,
+        "line_count": 1
+      },
+      {
+        "section": "banqueting",
+        "covers": null,
+        "line_count": 2
+      },
+      {
+        "section": "breakfast_buffet",
+        "covers": null,
+        "line_count": 0
+      },
+      {
+        "section": "canteen",
+        "covers": null,
+        "line_count": 0
+      },
+      {
+        "section": "skybar",
+        "covers": null,
+        "line_count": 20
+      }
+    ]
+  },
+  "skybar_board": {
+    "http": 200,
+    "covers": null,
+    "line_count": 20,
+    "day_status": "open"
+  },
+  "breakfast_board": {
+    "http": 200,
+    "covers": null,
+    "line_count": 0
+  },
+  "banquet_covers": {
+    "http": 200,
+    "covers": 100,
+    "covers_source": "beo",
+    "beo_events": [
+      {
+        "name": "Wedding lunch",
+        "covers": 60
+      },
+      {
+        "name": "Corp dinner",
+        "covers": 40
+      }
+    ],
+    "line_count": 2
+  },
+  "buffet_covers": {
+    "http": 200,
+    "covers": 80
+  },
+  "waves": {
+    "w1": {
+      "http": 200,
+      "body": {
+        "id": 5,
+        "name": "Wave 1 lunch",
+        "serve_at": "12:30:00",
+        "covers": 60,
+        "sort_order": 10
+      }
+    },
+    "w2": {
+      "http": 200,
+      "body": {
+        "id": 6,
+        "name": "Wave 2 dinner",
+        "serve_at": "19:00:00",
+        "covers": 40,
+        "sort_order": 20
+      }
+    }
+  },
+  "banquet_lines": [
+    {
+      "id": 180,
+      "name": "Phase4 Gate Banquet Roast",
+      "mode": "produce",
+      "yield_per_cover": 1,
+      "proposed_qty": null
+    },
+    {
+      "id": 181,
+      "name": "Phase4 Gate No-Yield Canape",
+      "mode": "produce",
+      "yield_per_cover": null,
+      "proposed_qty": null
+    }
+  ],
+  "scale": {
+    "http": 200,
+    "body": {
+      "section": "banqueting",
+      "service_date": "2026-08-20",
+      "scaling_covers": 100,
+      "formula": "proposed_qty = scaling_covers * template.yield_per_cover",
+      "scaling_covers_source": "sum(wave.covers) if any wave.covers set else section.covers",
+      "updated": [
+        {
+          "line_id": 180,
+          "name": "Phase4 Gate Banquet Roast",
+          "proposed_qty": 100,
+          "yield_per_cover": 1
+        }
+      ],
+      "skipped_null_path": [
+        {
+          "line_id": 181,
+          "name": "Phase4 Gate No-Yield Canape",
+          "reason": "no_yield_per_cover",
+          "proposed_qty": null
+        }
+      ]
+    }
+  },
+  "patch_planned": {
+    "http": 200,
+    "planned_qty": 95,
+    "proposed_qty": 100,
+    "planned_qty_type": "int"
+  },
+  "wave_allocations": {
+    "http": 200,
+    "body": {
+      "line_id": 180,
+      "allocations": [
+        {
+          "id": 4,
+          "wave_id": 5,
+          "wave_name": "Wave 1 lunch",
+          "qty": 55
+        },
+        {
+          "id": 5,
+          "wave_id": 6,
+          "wave_name": "Wave 2 dinner",
+          "qty": 40
+        }
+      ]
+    }
+  },
+  "unique_line_wave": {
+    "enforced": true,
+    "error": "IntegrityError"
+  },
+  "canteen_quick_add": {
+    "http": 200,
+    "id": 183,
+    "mode": "produce"
+  },
+  "canteen_qty": {
+    "http": 200,
+    "planned_qty": 30,
+    "actual_qty": 28,
+    "covers_on_board": null
+  },
+  "close": {
+    "http": 200,
+    "status": "closed",
+    "closed_at": "2026-08-04T09:05:32.691Z",
+    "outturn_keys": [
+      "sections",
+      "closed_at",
+      "service_date"
+    ],
+    "has_sections_outturn": true
+  },
+  "closed_reject_tick": {
+    "http": 409,
+    "body": {
+      "detail": "day_closed: Service day 2026-08-20 is closed \u2014 reopen before mutating boards"
+    },
+    "raw": "{\"detail\": \"day_closed: Service day 2026-08-20 is closed \\u2014 reopen before mutating boards\"}"
+  },
+  "closed_reject_qty": {
+    "http": 409,
+    "detail": "day_closed: Service day 2026-08-20 is closed \u2014 reopen before mutating boards"
+  },
+  "units_after": {
+    "django": "active",
+    "qcluster": "active"
+  },
+  "openapi": {
+    "info_version": "0.1.11",
+    "path_count": 38,
+    "needed_present": true,
+    "missing": [],
+    "board_paths": [
+      "/api/v1/boards/components/{component_id}/tick",
+      "/api/v1/boards/components/{component_id}/untick",
+      "/api/v1/boards/days/open",
+      "/api/v1/boards/days/{service_date}",
+      "/api/v1/boards/days/{service_date}/close",
+      "/api/v1/boards/days/{service_date}/sections/{section}",
+      "/api/v1/boards/days/{service_date}/sections/{section}/covers",
+      "/api/v1/boards/days/{service_date}/sections/{section}/open",
+      "/api/v1/boards/days/{service_date}/sections/{section}/outlets",
+      "/api/v1/boards/days/{service_date}/sections/{section}/scale-produce",
+      "/api/v1/boards/days/{service_date}/sections/{section}/waves",
+      "/api/v1/boards/lines/quick-add",
+      "/api/v1/boards/lines/{line_id}/notes",
+      "/api/v1/boards/lines/{line_id}/qty",
+      "/api/v1/boards/lines/{line_id}/tick",
+      "/api/v1/boards/lines/{line_id}/untick",
+      "/api/v1/boards/lines/{line_id}/wave-allocations",
+      "/api/v1/boards/waves/{wave_id}"
+    ]
+  },
+  "reopen": {
+    "http": 200
+  },
+  "beo_on_skybar_rejected": {
+    "http": 400,
+    "detail": "beo_section_only: covers_source=beo only allowed on banqueting / banquet_buffet"
+  },
+  "skybar_after": {
+    "http": 200,
+    "covers": null
+  },
+  "gate": "ok"
+}

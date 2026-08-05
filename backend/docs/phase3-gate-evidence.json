@@ -1,0 +1,157 @@
+{
+  "contract_expected": "0.1.10",
+  "units": {
+    "django": "active",
+    "qcluster": "active"
+  },
+  "fixtures": {
+    "area": {
+      "id": 8,
+      "name": "a la carte fridge"
+    },
+    "area2": {
+      "id": 4,
+      "name": "breakfast freezer"
+    },
+    "item": {
+      "id": 1,
+      "name": "Italian mixed olives",
+      "si": 1,
+      "pack": "10.000000"
+    },
+    "start_balance": "34.000000"
+  },
+  "version_local": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.10",
+      "contract_version": "0.1.10",
+      "api": "v1"
+    }
+  },
+  "version_public": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.10",
+      "contract_version": "0.1.10",
+      "api": "v1"
+    }
+  },
+  "balance_start": "34.000000",
+  "po_send": {
+    "http": 200,
+    "status": "sent",
+    "po_id": 11
+  },
+  "delivery": {
+    "http": 200,
+    "id": 5,
+    "status": "complete",
+    "line_count": 1
+  },
+  "receipt": {
+    "balance_before": "34.000000",
+    "balance_after": "54.000000",
+    "expected_delta": "20.000000",
+    "movement_count": 1,
+    "movement_qty": "20.000000",
+    "kind": "receipt"
+  },
+  "walk_start": {
+    "http": 200,
+    "id": 10,
+    "line_count": 1
+  },
+  "walk_batch": {
+    "http": 200,
+    "counted_count": 1
+  },
+  "walk_submit": {
+    "http": 200,
+    "status": "submitted",
+    "theoretical_qty": 54,
+    "variance_qty": -7,
+    "counted_qty": 47,
+    "qty_base": 47
+  },
+  "variance_balance_unchanged": {
+    "before": "54.000000",
+    "after": "54.000000",
+    "label": "unexplained"
+  },
+  "walk_lock": {
+    "http": 200,
+    "status": "locked"
+  },
+  "waste": {
+    "http": 200,
+    "movement": {
+      "id": 11,
+      "item_id": 1,
+      "item_name": "Italian mixed olives",
+      "area_id": 8,
+      "area_name": "a la carte fridge",
+      "qty": -3,
+      "kind": "waste",
+      "source_type": "api_waste",
+      "source_id": "",
+      "occurred_at": "2026-08-04T03:44:13.557Z",
+      "note": "phase3 gate waste"
+    },
+    "balance_before": "54.000000",
+    "balance_after": "51.000000",
+    "raw_has_number_qty": true,
+    "raw_quoted_qty": false
+  },
+  "balances_get": {
+    "http": 200,
+    "rows": [
+      {
+        "item_id": 1,
+        "item_name": "Italian mixed olives",
+        "item_base_unit": "ea",
+        "area_id": 8,
+        "area_name": "a la carte fridge",
+        "qty": 51,
+        "updated_at": "2026-08-04T03:44:13.560Z"
+      }
+    ]
+  },
+  "movements_get": {
+    "http": 200,
+    "count": 6,
+    "kinds": [
+      "waste",
+      "receipt",
+      "waste",
+      "receipt",
+      "waste",
+      "receipt"
+    ]
+  },
+  "append_only": {
+    "app_update_blocked": true,
+    "app_delete_blocked": true,
+    "db_update_blocked": true,
+    "db_delete_blocked": true
+  },
+  "no_balance_write_api": {
+    "post_balances_http": 405,
+    "detail": "Method not allowed"
+  },
+  "admin_readonly": {
+    "balance_has_change": false,
+    "balance_has_add": false,
+    "movement_has_change": false,
+    "movement_has_delete": false,
+    "movement_has_add": false
+  },
+  "openapi": {
+    "path": "/home/discovery-system/src/evolving-cook/docs/openapi.json",
+    "has_inventory_balances": true,
+    "has_inventory_waste": true,
+    "has_inventory_movements": true,
+    "has_count_adjustment": true,
+    "info_version": "0.1.10"
+  }
+}
