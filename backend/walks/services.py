@@ -305,6 +305,13 @@ def submit_walk(walk_id: int) -> Walk:
     from inventory.services import apply_walk_variance
 
     apply_walk_variance(walk_id)
+    # D15.1 soft assist card from shortfall (no PO write here)
+    try:
+        from planning.d15_depth import ensure_order_suggest_from_walk
+
+        ensure_order_suggest_from_walk(walk_id=walk_id, service_date=timezone.localdate())
+    except Exception:  # noqa: BLE001
+        pass
     return walk_queryset(walk_id)
 
 

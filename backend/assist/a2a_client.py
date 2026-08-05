@@ -112,10 +112,44 @@ def run_assist_job(job_id: int) -> str:
         job.save(update_fields=["status", "error", "updated_at"])
 
     try:
-        if job.kind == AssistJob.Kind.PARSE_NOTE:
-            text = build_parse_note_prompt(
-                job.context if isinstance(job.context, dict) else {}
+        ctx = job.context if isinstance(job.context, dict) else {}
+        if job.kind == AssistJob.Kind.PARSE_NOTE or job.kind == "parse_note":
+            text = build_parse_note_prompt(ctx)
+        elif job.kind in (AssistJob.Kind.PREP_PLAN, "prep_plan"):
+            from planning.ordering_assist import build_prep_plan_llm_prompt
+            from planning.models import ProductionLine, ServiceDay, ServiceSection
+            from datetime import date as date_cls
+
+            section = str(ctx.get("section") or "")
+            sd_raw = ctx.get("service_date")
+            covers = ctx.get("covers")
+            lines_out = []
+            try:
+                sd = sd_raw if hasattr(sd_raw, "isoformat") else date_cls.fromisoformat(str(sd_raw)[:10])
+                day = ServiceDay.objects.get(service_date=sd)
+                sec = ServiceSection.objects.get(service_day=day, section=section)
+                covers = covers if covers is not None else sec.covers
+                for ln in ProductionLine.objects.filter(service_section=sec).order_by("sort_order", "id")[:80]:
+                    lines_out.append({
+                        "line_id": ln.pk,
+                        "name": ln.name,
+                        "mode": ln.mode,
+                        "kind": ln.kind,
+                        "unit": ln.unit,
+                        "planned_qty": float(ln.planned_qty) if ln.planned_qty is not None else None,
+                        "proposed_qty": float(ln.proposed_qty) if ln.proposed_qty is not None else None,
+                    })
+            except Exception:
+                sd = sd_raw
+            text = build_prep_plan_llm_prompt(
+                section=section,
+                service_date=sd if hasattr(sd, "isoformat") else str(sd_raw),
+                covers=int(covers) if covers is not None else None,
+                lines=lines_out,
             )
+        elif job.kind in (AssistJob.Kind.QTY_DRAFT, AssistJob.Kind.MORNING_QTY, "qty_draft", "morning_qty"):
+            from planning.d15_depth import build_qty_draft_prompt
+            text = build_qty_draft_prompt(ctx)
         else:
             raise AssistError(f"unsupported kind {job.kind}", code="bad_kind")
 

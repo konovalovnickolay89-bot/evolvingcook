@@ -545,6 +545,39 @@ def handle_agent_event(payload: dict) -> dict[str, Any]:
         if not job.task_id:
             job.task_id = task_id
 
+    # D15.1 multi-step payloads (prep_plan steps[] / qty_draft proposals[])
+    if not parse_err and isinstance(proposal_body, dict):
+        if (kind in (AssistJob.Kind.PREP_PLAN, "prep_plan")) and isinstance(
+            proposal_body.get("steps"), list
+        ):
+            from planning.d15_depth import apply_prep_plan_llm_payload
+
+            return apply_prep_plan_llm_payload(
+                job=job,
+                task_id=task_id,
+                payload=proposal_body,
+                context=context,
+                model_name="a2a",
+            )
+        if kind in (
+            AssistJob.Kind.QTY_DRAFT,
+            AssistJob.Kind.MORNING_QTY,
+            "qty_draft",
+            "morning_qty",
+        ) and (
+            isinstance(proposal_body.get("proposals"), list)
+            or isinstance(proposal_body.get("lines"), list)
+        ):
+            from planning.d15_depth import apply_qty_draft_llm_payload
+
+            return apply_qty_draft_llm_payload(
+                job=job,
+                task_id=task_id,
+                payload=proposal_body,
+                context=context,
+                kind=str(kind),
+            )
+
     # Existing decided proposal: never clobber
     existing = (
         AssistProposal.objects.select_for_update().filter(task_id=task_id).first()
@@ -849,9 +882,12 @@ def enqueue_assist_job(kind: str, context: dict) -> AssistJob:
             kind=kind, context=context, status=AssistJob.Status.SUCCEEDED
         )
 
-    # prep_plan: deterministic scaffold proposals (no A2A required for v1)
+    # prep_plan: scaffold immediately; optional A2A rewrite when configured
     if kind in (AssistJob.Kind.PREP_PLAN, "prep_plan"):
         from datetime import date as date_cls
+
+        from django.conf import settings as dj_settings
+        from django_q.tasks import async_task
 
         from planning.prep_plan import ensure_prep_plan_proposals
 
@@ -863,19 +899,78 @@ def enqueue_assist_job(kind: str, context: dict) -> AssistJob:
                 code="bad_context",
             )
         try:
-            if hasattr(sd_raw, "isoformat"):
-                sd = sd_raw
-            else:
-                sd = date_cls.fromisoformat(str(sd_raw)[:10])
+            sd = sd_raw if hasattr(sd_raw, "isoformat") else date_cls.fromisoformat(str(sd_raw)[:10])
         except ValueError as exc:
             raise AssistError("bad service_date", code="bad_context") from exc
         ensure_prep_plan_proposals(service_date=sd, section=str(sec))
+        use_llm = bool((context or {}).get("use_llm", True))
+        a2a_ready = bool(getattr(dj_settings, "A2A_BASE_URL", "") and getattr(dj_settings, "A2A_TOKEN", ""))
+        if use_llm and a2a_ready and (context or {}).get("llm_only") is not True:
+            # separate job for A2A rewrite (scaffold already visible)
+            llm_job = AssistJob.objects.create(
+                kind=kind,
+                context={**context, "phase": "llm_rewrite"},
+                status=AssistJob.Status.QUEUED,
+            )
+            try:
+                qid = async_task("assist.a2a_client.run_assist_job", llm_job.pk)
+                llm_job.q_task_id = str(qid or "")
+                llm_job.save(update_fields=["q_task_id", "updated_at"])
+            except Exception as exc:  # noqa: BLE001
+                llm_job.status = AssistJob.Status.FAILED
+                llm_job.error = f"queue_enqueue_failed: {exc}"[:2000]
+                llm_job.save(update_fields=["status", "error", "updated_at"])
+            return llm_job
         job = AssistJob.objects.create(
             kind=kind,
             context=context,
             status=AssistJob.Status.SUCCEEDED,
         )
         return job
+
+    # qty_draft / morning_qty: scaffold proposals; optional A2A polish
+    if kind in (AssistJob.Kind.QTY_DRAFT, AssistJob.Kind.MORNING_QTY, "qty_draft", "morning_qty"):
+        from datetime import date as date_cls
+
+        from django.conf import settings as dj_settings
+        from django_q.tasks import async_task
+
+        from planning.d15_depth import ensure_qty_draft_proposals
+
+        sd_raw = (context or {}).get("service_date")
+        sec = (context or {}).get("section")
+        if not sec or not sd_raw:
+            raise AssistError(
+                f"{kind} requires context.section and context.service_date",
+                code="bad_context",
+            )
+        try:
+            sd = sd_raw if hasattr(sd_raw, "isoformat") else date_cls.fromisoformat(str(sd_raw)[:10])
+        except ValueError as exc:
+            raise AssistError("bad service_date", code="bad_context") from exc
+        ensure_qty_draft_proposals(service_date=sd, section=str(sec), kind=str(kind))
+        use_llm = bool((context or {}).get("use_llm", False))  # opt-in for qty LLM
+        a2a_ready = bool(getattr(dj_settings, "A2A_BASE_URL", "") and getattr(dj_settings, "A2A_TOKEN", ""))
+        if use_llm and a2a_ready:
+            llm_job = AssistJob.objects.create(
+                kind=kind,
+                context={**context, "phase": "llm_rewrite"},
+                status=AssistJob.Status.QUEUED,
+            )
+            try:
+                qid = async_task("assist.a2a_client.run_assist_job", llm_job.pk)
+                llm_job.q_task_id = str(qid or "")
+                llm_job.save(update_fields=["q_task_id", "updated_at"])
+            except Exception as exc:  # noqa: BLE001
+                llm_job.status = AssistJob.Status.FAILED
+                llm_job.error = f"queue_enqueue_failed: {exc}"[:2000]
+                llm_job.save(update_fields=["status", "error", "updated_at"])
+            return llm_job
+        return AssistJob.objects.create(
+            kind=kind,
+            context=context,
+            status=AssistJob.Status.SUCCEEDED,
+        )
 
     if kind == AssistJob.Kind.PARSE_NOTE or kind == "parse_note":
         dup = find_recent_parse_note_dedupe(context)

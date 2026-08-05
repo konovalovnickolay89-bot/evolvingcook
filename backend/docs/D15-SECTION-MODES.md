@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|--------|
 | Decision | Chef chooses section mode once (counts vs ordering); guided prep for banquet*; proposal targets expand beyond note tiers |
-| Phase | Cross-cut on boards + assist (contract **0.1.16**) |
+| Phase | Cross-cut on boards + assist (contract **0.1.17**) |
 | FE | Grok — Section Modes / Assist Inbox mocks; this doc is backend SoT |
 | Supersedes | nothing (extends D11/D14) |
 
@@ -123,13 +123,22 @@ Note-tier targets remain for `parse_note`. Mixed bodies are invalid — one prim
 
 ## 7. Contract
 
-Bump **APP_VERSION / CONTRACT_VERSION → 0.1.16**, regenerate `docs/openapi.json`.
+Bump **APP_VERSION / CONTRACT_VERSION → 0.1.17**, regenerate `docs/openapi.json`.
 
 
-## 8. Depth increment (0.1.16)
+## 8. Depth increment (0.1.17)
 
 - Accept handlers for `planned_qty`, `component_fill`, `order_packs`, `new_line`
 - Accept may send `{ "proposal": {…} }` overlay (FE Adjust / fill components)
 - Ordering board: component `stock_status` dots + line `to_order_count` + `order_assist` card
 - Deterministic `menu_completeness` + `order_suggest` scaffolds on ordering board fetch
 - `build_prep_plan_llm_prompt` ready for A2A rewrite (scaffold still default)
+
+
+## 9. Depth 0.1.17
+
+- **prep_plan A2A**: scaffold first; if A2A configured, queue LLM rewrite → replaces pending steps (`steps[]` with required `working`)
+- **qty_draft / morning_qty**: MEP-ordered planned_qty proposals on counts boards; optional `use_llm`
+- **Covers change**: pending prep steps re-scaffolded with new working maths (accepted kept)
+- **Stock dots**: par-aware (`par_qty` on components) when ParLevel exists
+- **Walk shortfall**: submit + `/order-proposal` also create/merge `order_suggest` AssistProposal (`assist_proposal_id`)

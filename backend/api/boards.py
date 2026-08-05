@@ -173,6 +173,7 @@ class LineComponentOut(Schema):
     stock_qty: float | None = None
     on_order_qty: float | None = None
     supplier_code: str | None = None
+    par_qty: float | None = None
 
 
 class LineEventOut(Schema):
@@ -635,6 +636,13 @@ def _board_payload(service_date: date, section: str) -> dict:
         for o in sec.outlets.all()
     ]
     prep_plan = None
+    if mode_fields.get("section_mode") == "counts":
+        try:
+            from planning.d15_depth import ensure_qty_draft_proposals
+
+            ensure_qty_draft_proposals(service_date=service_date, section=section)
+        except Exception:  # noqa: BLE001
+            pass
     if mode_fields.get("guided") and mode_fields.get("section_mode") == "counts":
         try:
             from planning.prep_plan import prep_plan_board_payload
