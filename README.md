@@ -11,7 +11,7 @@
 |-------|--------|
 | FE (CORS) | `https://evolvingcook.grok.me` |
 | API public | `https://api.apidiscoverysolution.uk` → tunnel → `127.0.0.1:8000` |
-| Contract | see `backend/` live `/api/v1/version` (0.1.16+) |
+| Contract | see `backend/` live `/api/v1/version` (0.1.17+) |
 
 ## Backend (this host)
 
