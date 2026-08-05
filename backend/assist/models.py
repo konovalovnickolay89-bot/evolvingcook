@@ -14,6 +14,11 @@ class AssistJob(models.Model):
 
     class Kind(models.TextChoices):
         PARSE_NOTE = "parse_note", "parse_note"
+        PREP_PLAN = "prep_plan", "prep_plan"
+        MENU_COMPLETENESS = "menu_completeness", "menu_completeness"
+        ORDER_SUGGEST = "order_suggest", "order_suggest"
+        QTY_DRAFT = "qty_draft", "qty_draft"
+        MORNING_QTY = "morning_qty", "morning_qty"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"

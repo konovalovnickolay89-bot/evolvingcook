@@ -98,7 +98,7 @@
         "type": "object"
       },
       "BoardOut": {
-        "description": "One-request board payload for a single section (Phase 4 includes waves/outlets).",
+        "description": "One-request board payload for a single section (Phase 4 + D15 modes).",
         "properties": {
           "active": {
             "title": "Active",
@@ -132,6 +132,11 @@
             "title": "Day Status",
             "type": "string"
           },
+          "guided": {
+            "default": false,
+            "title": "Guided",
+            "type": "boolean"
+          },
           "line_count": {
             "title": "Line Count",
             "type": "integer"
@@ -142,6 +147,22 @@
             },
             "title": "Lines",
             "type": "array"
+          },
+          "mode_prompt_needed": {
+            "default": true,
+            "title": "Mode Prompt Needed",
+            "type": "boolean"
+          },
+          "mode_recommendation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode Recommendation"
           },
           "notes": {
             "title": "Notes",
@@ -183,6 +204,18 @@
             "title": "Outturn",
             "type": "object"
           },
+          "prep_plan": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prep Plan"
+          },
           "section": {
             "title": "Section",
             "type": "string"
@@ -190,6 +223,17 @@
           "section_id": {
             "title": "Section Id",
             "type": "integer"
+          },
+          "section_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section Mode"
           },
           "service_date": {
             "format": "date",
@@ -1547,6 +1591,28 @@
             "title": "Status",
             "type": "string"
           },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "target_confidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Confidence"
+          },
           "task_id": {
             "anyOf": [
               {
@@ -1740,6 +1806,7 @@
         "type": "object"
       },
       "RejectIn": {
+        "description": "Empty/omitted reason \u2192 service stores \"other\" (BE-1).",
         "properties": {
           "reason": {
             "default": "",
@@ -1853,6 +1920,107 @@
           }
         },
         "title": "SectionCoversIn",
+        "type": "object"
+      },
+      "SectionSettingOut": {
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "guided": {
+            "default": false,
+            "title": "Guided",
+            "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "mode_prompt_needed": {
+            "default": true,
+            "title": "Mode Prompt Needed",
+            "type": "boolean"
+          },
+          "mode_recommendation": {
+            "title": "Mode Recommendation",
+            "type": "string"
+          },
+          "section": {
+            "title": "Section",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "section",
+          "mode_recommendation"
+        ],
+        "title": "SectionSettingOut",
+        "type": "object"
+      },
+      "SectionSettingPatchIn": {
+        "properties": {
+          "guided": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guided"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "SectionSettingPatchIn",
+        "type": "object"
+      },
+      "SectionSettingsListOut": {
+        "properties": {
+          "settings": {
+            "items": {
+              "$ref": "#/components/schemas/SectionSettingOut"
+            },
+            "title": "Settings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "settings"
+        ],
+        "title": "SectionSettingsListOut",
         "type": "object"
       },
       "ServiceDayOut": {
@@ -2789,9 +2957,9 @@
     }
   },
   "info": {
-    "description": "Backend contract for Evolving Cook. Auth: Bearer token from /auth/login (Django signing, 30 days). 401 is never a reason to drop client data \u2014 re-auth and retry. Walk batch submit 401: re-auth and retry the batch; never discard line payloads. Phase 1.5: /boards/* MEP service boards (covers never required). Phase 2: /walks/* lifecycle + /purchasing/* PO draft\u2192send + delivery receipt. Phase 3: /inventory/* append-only stock ledger (balances, movements, waste, count_adjustment, transfer). Delivery complete \u2192 receipt movements; walk submit/lock \u2192 theoretical + unexplained variance (never auto-correct). Phase 4: /boards/* full planner \u2014 banquet BEO covers + waves + WaveAllocation (one line across waves), produce scale formula proposed_qty = scaling_covers * template.yield_per_cover (null yield \u2192 null proposed), canteen produce qty entered (not covers-derived), day close + outturn. Covers never required outside banquet*. D12/D14: line notes (today) + template_notes (dish template, every day) + item notes/house_made. NOTE\u2192ASSIST v2: note-save auto-enqueues parse_note; board lines carry pending_proposal inline; accept target line|template|item. Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); B15 explode via POST /assist/explode. Internal agent-events is NOT on /api/v1.",
+    "description": "Backend contract for Evolving Cook. Auth: Bearer token from /auth/login (Django signing, 30 days). 401 is never a reason to drop client data \u2014 re-auth and retry. Walk batch submit 401: re-auth and retry the batch; never discard line payloads. Phase 1.5: /boards/* MEP service boards (covers never required). Phase 2: /walks/* lifecycle + /purchasing/* PO draft\u2192send + delivery receipt. Phase 3: /inventory/* append-only stock ledger (balances, movements, waste, count_adjustment, transfer). Delivery complete \u2192 receipt movements; walk submit/lock \u2192 theoretical + unexplained variance (never auto-correct). Phase 4: /boards/* full planner \u2014 banquet BEO covers + waves + WaveAllocation (one line across waves), produce scale formula proposed_qty = scaling_covers * template.yield_per_cover (null yield \u2192 null proposed), canteen produce qty entered (not covers-derived), day close + outturn. Covers never required outside banquet*. D12/D14: line notes (today) + template_notes (dish template, every day) + item notes/house_made. NOTE\u2192ASSIST v2: note-save auto-enqueues parse_note; board lines carry pending_proposal inline; accept target line|template|item. D15: /sections/* section mode (counts|ordering, null until chef chooses); BoardOut carries section_mode, mode_prompt_needed, guided, mode_recommendation, prep_plan. Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); B15 explode via POST /assist/explode. Internal agent-events is NOT on /api/v1.",
     "title": "Evolving Cook API",
-    "version": "0.1.13"
+    "version": "0.1.15"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -5524,6 +5692,100 @@
         "summary": "PO draft \u2192 sent",
         "tags": [
           "purchasing"
+        ]
+      }
+    },
+    "/api/v1/sections/settings": {
+      "get": {
+        "operationId": "api_sections_get_all_settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectionSettingsListOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "All six section mode settings (mode null until chef chooses)",
+        "tags": [
+          "sections"
+        ]
+      }
+    },
+    "/api/v1/sections/{section}/settings": {
+      "patch": {
+        "operationId": "api_sections_patch_section_settings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "section",
+            "required": true,
+            "schema": {
+              "title": "Section",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SectionSettingPatchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SectionSettingOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorOut"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Upsert section mode (counts|ordering). Never silent default \u2014 chef choice.",
+        "tags": [
+          "sections"
         ]
       }
     },

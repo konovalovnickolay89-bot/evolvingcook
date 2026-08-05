@@ -53,6 +53,9 @@ class ProposalOut(Schema):
     kind: str
     context: dict
     proposal: dict
+    # BE-4 / D14 — top-level so FE need not scrape proposal JSON
+    target: str | None = None
+    target_confidence: str | None = None
     rationale: str
     model: str
     status: str
@@ -84,6 +87,8 @@ class JobCreateIn(Schema):
 
 
 class RejectIn(Schema):
+    """Empty/omitted reason → service stores \"other\" (BE-1)."""
+
     reason: str = ""
 
 
@@ -159,7 +164,8 @@ def accept_proposal(request: HttpRequest, proposal_id: int):
     response={200: ProposalOut, 400: ErrorOut, 404: ErrorOut},
 )
 def reject_proposal(request: HttpRequest, proposal_id: int, body: RejectIn = None):
-    reason = (body.reason if body else "") or ""
+    # BE-1: blank → "other" (also enforced in reject_assist_proposal)
+    reason = ((body.reason if body else "") or "").strip() or "other"
     try:
         p = reject_assist_proposal(proposal_id, reason=reason)
     except AssistProposal.DoesNotExist:

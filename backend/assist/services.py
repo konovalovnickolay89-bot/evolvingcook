@@ -270,6 +270,13 @@ def proposal_has_structure(body: dict | None) -> bool:
     """True when proposal has accept-worthy structured content."""
     if not isinstance(body, dict) or not body:
         return False
+    target = str(body.get("target") or "").strip().lower()
+    if target == "prep_step":
+        return bool(str(body.get("title") or "").strip()) and bool(
+            str(body.get("working") or "").strip()
+        )
+    if target in {"planned_qty", "order_packs", "new_line", "component_fix"}:
+        return True
     note = body.get("note")
     if isinstance(note, str) and note.strip():
         return True
@@ -282,9 +289,58 @@ def proposal_has_structure(body: dict | None) -> bool:
     return False
 
 
+def _audit_list(body: dict) -> list[dict[str, Any]]:
+    """Return a clean list for proposal.audit (never stuffed into rationale)."""
+    raw = body.get("audit")
+    if isinstance(raw, list):
+        out: list[dict[str, Any]] = []
+        for item in raw:
+            if isinstance(item, dict) and item.get("code"):
+                out.append(
+                    {
+                        "code": str(item.get("code"))[:64],
+                        "detail": str(item.get("detail") or "")[:500],
+                    }
+                )
+            elif isinstance(item, str) and item.strip():
+                out.append({"code": "note", "detail": item.strip()[:500]})
+        return out
+    if isinstance(raw, dict) and raw.get("code"):
+        return [
+            {
+                "code": str(raw.get("code"))[:64],
+                "detail": str(raw.get("detail") or "")[:500],
+            }
+        ]
+    return []
+
+
+def _append_audit(body: dict, code: str, detail: str) -> None:
+    events = _audit_list(body)
+    code_s = (code or "").strip()[:64]
+    detail_s = (detail or "").strip()[:500]
+    if not code_s:
+        return
+    # de-dupe identical code+detail
+    for ev in events:
+        if ev.get("code") == code_s and ev.get("detail") == detail_s:
+            body["audit"] = events
+            return
+    events.append({"code": code_s, "detail": detail_s})
+    body["audit"] = events
+
+
 def normalize_proposal_targets(body: dict) -> dict:
-    """Ensure target + target_confidence present with safe defaults."""
+    """
+    Ensure target + target_confidence present with safe defaults.
+
+    System coercion notes go to proposal.audit (list of {code, detail}).
+    Human/model rationale stays free of pipeline string-splits (BE-2).
+    """
     b = dict(body)
+    # Preserve any existing audit; never read pipeline crumbs from rationale.
+    b["audit"] = _audit_list(b)
+
     target = str(b.get("target") or "").strip().lower()
     if target not in VALID_TARGETS:
         # Prefer reversible default
@@ -294,15 +350,20 @@ def normalize_proposal_targets(body: dict) -> dict:
         b["target"] = target
         if not b.get("target_confidence"):
             b["target_confidence"] = "low"
-        rat = str(b.get("rationale") or "")
-        if "defaulted target" not in rat.lower():
-            b["rationale"] = (
-                (rat + " | " if rat else "")
-                + "defaulted target (missing/invalid); preferred reversible tier"
-            )[:2000]
+        _append_audit(
+            b,
+            "defaulted_target",
+            "missing/invalid target; preferred reversible tier",
+        )
     conf = str(b.get("target_confidence") or "").strip().lower()
     if conf not in VALID_CONFIDENCE:
         b["target_confidence"] = "medium"
+        if conf:
+            _append_audit(
+                b,
+                "defaulted_confidence",
+                f"invalid target_confidence={conf!r}; set medium",
+            )
     else:
         b["target_confidence"] = conf
     # house_made / components never on template tier — coerce up with low conf
@@ -311,11 +372,14 @@ def normalize_proposal_targets(body: dict) -> dict:
     ):
         b["target"] = "item"
         b["target_confidence"] = "low"
-        rat = str(b.get("rationale") or "")
-        b["rationale"] = (
-            (rat + " | " if rat else "")
-            + "coerced template→item: house_made/components are item-tier only"
-        )[:2000]
+        _append_audit(
+            b,
+            "coerced_template_to_item",
+            "house_made/components are item-tier only",
+        )
+    # Keep rationale as model/user text only (string or empty)
+    if b.get("rationale") is not None and not isinstance(b.get("rationale"), str):
+        b["rationale"] = str(b.get("rationale"))[:2000]
     return b
 
 
@@ -551,6 +615,15 @@ def handle_agent_event(payload: dict) -> dict[str, Any]:
 
     if not parse_err and proposal_has_structure(proposal_body):
         proposal_body = normalize_proposal_targets(proposal_body)
+        # B3 stamp
+        try:
+            from planning.section_modes import PROMPT_VERSION
+
+            if isinstance(proposal_body, dict):
+                proposal_body.setdefault("prompt_version", PROMPT_VERSION)
+        except Exception:  # noqa: BLE001
+            if isinstance(proposal_body, dict):
+                proposal_body.setdefault("prompt_version", "section-modes-v1")
 
     rationale = ""
     if isinstance(proposal_body, dict):
@@ -622,8 +695,25 @@ def build_parse_note_prompt(context: dict) -> str:
         )
         if ctx.get(k) is not None and ctx.get(k) != ""
     }
+    # B3: catalogue candidates — never invent item names
+    candidates: list[dict] = []
+    try:
+        from planning.prep_plan import catalogue_candidates_for_section
+        from planning.section_modes import PROMPT_VERSION
+
+        sec = compact.get("section")
+        if sec:
+            candidates = catalogue_candidates_for_section(str(sec), limit=40)
+        else:
+            candidates = catalogue_candidates_for_section("a_la_carte", limit=40)
+        prompt_version = PROMPT_VERSION
+    except Exception:  # noqa: BLE001
+        prompt_version = "section-modes-v1"
+        candidates = []
+
     return (
         "TASK kind=parse_note\n"
+        f"prompt_version={prompt_version}\n"
         "Return STRICT JSON only. No markdown fences. No prose. No TTS.\n"
         "Schema:{"
         '"note":string|null,'
@@ -632,7 +722,8 @@ def build_parse_note_prompt(context: dict) -> str:
         '"house_made":bool|null,'
         '"components":[{"name":string,"item_id":int|null,"qty":number|null,'
         '"unit":string|null,"notes":string|null,"sort_order":int|null}],'
-        '"rationale":string|null,"confidence":number|null}\n'
+        '"rationale":string|null,"confidence":number|null,'
+        '"prompt_version":string}\n'
         "Tiers: line=today only (ProductionLine); "
         "template=dish template note every future day (NOT house_made/components); "
         "item=catalogue Item permanent (house_made + components live ONLY here).\n"
@@ -645,12 +736,52 @@ def build_parse_note_prompt(context: dict) -> str:
         '{"note":null,"target":"line","target_confidence":"high","components":[],'
         '"rationale":"no structure"}.\n'
         "Rules: note max 500; qty JSON numbers; never self-parent; keep compact.\n"
+        "ONLY use component/item names from candidates (or exact note text). "
+        "Never invent catalogue codes.\n"
+        f"candidates={json.dumps(candidates, ensure_ascii=False, separators=(',', ':'))}\n"
         f"context={json.dumps(compact, ensure_ascii=False, separators=(',', ':'))}"
     )
 
 
+def find_recent_parse_note_dedupe(context: dict) -> AssistJob | None:
+    """
+    BE-3 / D14: identical text_hash (+ line_id when present) within DEDUPE_SECONDS.
+    Excludes FAILED so a failed attempt can be retried.
+    """
+    if not isinstance(context, dict):
+        return None
+    th = context.get("text_hash") or (
+        _text_hash(context["text"]) if context.get("text") else None
+    )
+    if not th:
+        return None
+    since = timezone.now() - timedelta(seconds=DEDUPE_SECONDS)
+    qs = (
+        AssistJob.objects.filter(
+            kind=AssistJob.Kind.PARSE_NOTE,
+            created_at__gte=since,
+        )
+        .filter(context__text_hash=th)
+        .exclude(status=AssistJob.Status.FAILED)
+        .order_by("-id")
+    )
+    line_id = context.get("line_id")
+    if line_id is not None and line_id != "":
+        try:
+            qs = qs.filter(context__line_id=int(line_id))
+        except (TypeError, ValueError):
+            pass
+    return qs.first()
+
+
 def enqueue_assist_job(kind: str, context: dict) -> AssistJob:
-    """Create AssistJob and enqueue django-q2 SendMessage worker."""
+    """
+    Create AssistJob and enqueue django-q2 SendMessage worker.
+
+    parse_note: normalize context; text_hash dedupe returns existing non-failed
+    job in-window (defense-in-depth for any client that still posts /jobs).
+    D15: mode gates by section on context.
+    """
     from django_q.tasks import async_task
 
     if kind not in {c.value for c in AssistJob.Kind}:
@@ -661,6 +792,60 @@ def enqueue_assist_job(kind: str, context: dict) -> AssistJob:
     if kind == AssistJob.Kind.PARSE_NOTE or kind == "parse_note":
         context = normalize_parse_note_context(context)
 
+    # D15 mode gate
+    section = None
+    if isinstance(context, dict):
+        section = context.get("section")
+        if section is None and context.get("line_id") is not None:
+            # section may have been enriched on parse_note context
+            section = context.get("section")
+    try:
+        from planning.section_modes import SectionModeError, assert_job_allowed
+
+        assert_job_allowed(kind=kind, section=section if section else None)
+    except SectionModeError as exc:
+        raise AssistError(str(exc), code=exc.code) from exc
+
+    # prep_plan: deterministic scaffold proposals (no A2A required for v1)
+    if kind in (AssistJob.Kind.PREP_PLAN, "prep_plan"):
+        from datetime import date as date_cls
+
+        from planning.prep_plan import ensure_prep_plan_proposals
+
+        sd_raw = (context or {}).get("service_date")
+        sec = (context or {}).get("section")
+        if not sec or not sd_raw:
+            raise AssistError(
+                "prep_plan requires context.section and context.service_date",
+                code="bad_context",
+            )
+        try:
+            if hasattr(sd_raw, "isoformat"):
+                sd = sd_raw
+            else:
+                sd = date_cls.fromisoformat(str(sd_raw)[:10])
+        except ValueError as exc:
+            raise AssistError("bad service_date", code="bad_context") from exc
+        ensure_prep_plan_proposals(service_date=sd, section=str(sec))
+        job = AssistJob.objects.create(
+            kind=kind,
+            context=context,
+            status=AssistJob.Status.SUCCEEDED,
+        )
+        return job
+
+    if kind == AssistJob.Kind.PARSE_NOTE or kind == "parse_note":
+        dup = find_recent_parse_note_dedupe(context)
+        if dup is not None:
+            logger.info(
+                "parse_note enqueue dedupe hit job=%s hash=%s line_id=%s",
+                dup.pk,
+                context.get("text_hash"),
+                context.get("line_id"),
+            )
+            return dup
+
+    # qty_draft / morning_qty blocked already by mode gate for ordering/unset
     job = AssistJob.objects.create(
         kind=kind,
         context=context,
@@ -683,8 +868,8 @@ def maybe_auto_enqueue_parse_note_for_line(
 ) -> AssistJob | None:
     """
     After note-save: auto-enqueue parse_note when text long enough.
-    Dedupe identical text per line; rate-limit. Never raises to caller for queue issues.
-    Returns job or None (skipped).
+    Dedupe identical text per line (via enqueue_assist_job); rate-limit.
+    Never raises to caller for queue issues. Returns job or None (skipped).
     """
     cleaned = (text or "").strip()
     if len(cleaned) < PARSE_NOTE_MIN_CHARS:
@@ -694,32 +879,12 @@ def maybe_auto_enqueue_parse_note_for_line(
     if line_id is None:
         return None
 
-    th = _text_hash(cleaned)
-    since = timezone.now() - timedelta(seconds=DEDUPE_SECONDS)
-    # Dedupe: identical text on same line recently
-    dup = (
-        AssistJob.objects.filter(
-            kind=AssistJob.Kind.PARSE_NOTE,
-            created_at__gte=since,
-        )
-        .filter(context__line_id=line_id)
-        .filter(context__text_hash=th)
-        .exclude(status=AssistJob.Status.FAILED)
-        .order_by("-id")
-        .first()
-    )
-    if dup is not None:
-        logger.info(
-            "parse_note dedupe skip line=%s job=%s hash=%s", line_id, dup.pk, th
-        )
-        return None
-
-    # Rate limit per line
+    # Rate limit per line (dedupe is inside enqueue_assist_job)
     hour_ago = timezone.now() - timedelta(hours=1)
     n_hour = AssistJob.objects.filter(
         kind=AssistJob.Kind.PARSE_NOTE,
         created_at__gte=hour_ago,
-        context__line_id=line_id,
+        context__line_id=int(line_id),
     ).count()
     if n_hour >= RATE_PER_LINE_HOUR:
         logger.warning("parse_note rate limit line=%s n=%s", line_id, n_hour)
@@ -730,7 +895,16 @@ def maybe_auto_enqueue_parse_note_for_line(
         "line_id": int(line_id),
     }
     try:
-        return enqueue_assist_job("parse_note", ctx)
+        # Pre-check so auto path returns None on dedupe (enqueue still protects).
+        norm = normalize_parse_note_context(ctx)
+        if find_recent_parse_note_dedupe(norm) is not None:
+            logger.info(
+                "parse_note auto dedupe skip line=%s hash=%s",
+                line_id,
+                norm.get("text_hash"),
+            )
+            return None
+        return enqueue_assist_job("parse_note", norm)
     except AssistError as exc:
         logger.warning("auto enqueue assist error: %s", exc)
         return None
@@ -779,11 +953,20 @@ def pending_proposals_for_line_ids(line_ids: list[int]) -> dict[int, dict]:
 
 def proposal_out_dict(p: AssistProposal) -> dict:
     prop = p.proposal if isinstance(p.proposal, dict) else {}
+    target = prop.get("target")
+    if target is not None:
+        target = str(target)
+    conf = prop.get("target_confidence")
+    if conf is not None:
+        conf = str(conf)
     return {
         "id": p.pk,
         "kind": p.kind,
         "context": p.context if isinstance(p.context, dict) else {},
         "proposal": prop,
+        # BE-4: top-level target fields (D14); FE no longer digs JSON heuristics
+        "target": target,
+        "target_confidence": conf,
         "rationale": p.rationale or "",
         "model": p.model or "",
         "status": p.status,
@@ -824,6 +1007,8 @@ def accept_assist_proposal(proposal_id: int) -> AssistProposal:
 
     if proposal.kind == AssistJob.Kind.PARSE_NOTE or proposal.kind == "parse_note":
         _apply_parse_note(proposal)
+    elif proposal.kind == "prep_plan" or proposal.kind == AssistJob.Kind.PREP_PLAN:
+        _apply_prep_step(proposal)
     else:
         raise AssistError(
             f"no accept handler for kind={proposal.kind}",
@@ -841,21 +1026,74 @@ def accept_assist_proposal(proposal_id: int) -> AssistProposal:
 
 @transaction.atomic
 def reject_assist_proposal(proposal_id: int, reason: str = "") -> AssistProposal:
+    """
+    Reject proposal. BE-1: empty/whitespace reason defaults to "other"
+    so learning signal never stores blank reject_reason.
+    """
+    reason_s = (reason or "").strip() or "other"
     proposal = AssistProposal.objects.select_for_update().get(pk=proposal_id)
     if proposal.status == AssistProposal.Status.ACCEPTED:
         raise AssistError("Cannot reject an accepted proposal", code="already_accepted")
     if proposal.status == AssistProposal.Status.REJECTED:
-        if reason and reason != proposal.reject_reason:
-            proposal.reject_reason = reason[:2000]
+        if reason_s != proposal.reject_reason:
+            proposal.reject_reason = reason_s[:2000]
             proposal.save(update_fields=["reject_reason", "updated_at"])
         return proposal
     proposal.status = AssistProposal.Status.REJECTED
     proposal.decided_at = timezone.now()
-    proposal.reject_reason = (reason or "")[:2000]
+    proposal.reject_reason = reason_s[:2000]
     proposal.save(
         update_fields=["status", "decided_at", "reject_reason", "updated_at"]
     )
     return proposal
+
+
+def _apply_prep_step(proposal: AssistProposal) -> None:
+    """
+    Accept a guided prep_step: validate working; stamp accepted_at on proposal body;
+    optionally sync line planned_qty when line_id + qty present.
+    Domain snapshot is the accepted AssistProposal row itself (board reads it).
+    """
+    from planning.prep_plan import validate_prep_step_body
+    from planning.section_modes import PROMPT_VERSION, assert_target_allowed
+
+    ctx = proposal.context if isinstance(proposal.context, dict) else {}
+    body = dict(proposal.proposal) if isinstance(proposal.proposal, dict) else {}
+    section = ctx.get("section") or body.get("section")
+    try:
+        assert_target_allowed(target="prep_step", section=section)
+    except Exception as exc:  # noqa: BLE001
+        from planning.section_modes import SectionModeError
+
+        if isinstance(exc, SectionModeError):
+            raise AssistError(exc.message, code=exc.code) from exc
+        raise
+    err = validate_prep_step_body(body)
+    if err:
+        raise AssistError(err, code="not_accept_able")
+    body["target"] = "prep_step"
+    body["prompt_version"] = body.get("prompt_version") or PROMPT_VERSION
+    body["accepted_at"] = timezone.now().isoformat()
+    proposal.proposal = body
+    if not proposal.model:
+        proposal.model = proposal.model or "scaffold"
+
+    line_id = body.get("line_id") or ctx.get("line_id")
+    qty = body.get("qty")
+    if line_id is not None and qty is not None:
+        from planning.models import ProductionLine
+
+        try:
+            line = ProductionLine.objects.select_for_update().get(pk=int(line_id))
+        except (ProductionLine.DoesNotExist, TypeError, ValueError):
+            line = None
+        if line is not None and line.mode != ProductionLine.Mode.CHECK:
+            d = _to_decimal(qty)
+            if d is not None:
+                line.planned_qty = d
+                line.save(update_fields=["planned_qty", "updated_at"])
+
+    proposal.save(update_fields=["proposal", "model", "updated_at"])
 
 
 def _apply_parse_note(proposal: AssistProposal) -> None:
