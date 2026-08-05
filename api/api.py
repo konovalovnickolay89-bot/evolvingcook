@@ -23,6 +23,7 @@ from api.boards import router as boards_router
 from api.inventory import router as inventory_router
 from api.items import router as items_router
 from api.purchasing import router as purchasing_router
+from api.sections import router as sections_router
 from api.walks import router as walks_router
 
 
@@ -50,6 +51,8 @@ api = NinjaAPI(
         "D12/D14: line notes (today) + template_notes (dish template, every day) + "
         "item notes/house_made. NOTE→ASSIST v2: note-save auto-enqueues parse_note; "
         "board lines carry pending_proposal inline; accept target line|template|item. "
+        "D15: /sections/* section mode (counts|ordering, null until chef chooses); "
+        "BoardOut carries section_mode, mode_prompt_needed, guided, mode_recommendation, prep_plan. "
         "Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); "
         "B15 explode via POST /assist/explode. "
         "Internal agent-events is NOT on /api/v1."
@@ -57,6 +60,7 @@ api = NinjaAPI(
 )
 
 api.add_router("/boards", boards_router)
+api.add_router("/sections", sections_router)
 api.add_router("/items", items_router)
 api.add_router("/walks", walks_router)
 api.add_router("/purchasing", purchasing_router)

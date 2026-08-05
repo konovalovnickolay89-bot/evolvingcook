@@ -515,3 +515,42 @@ class WaveAllocation(models.Model):
             raise ValidationError(
                 "WaveAllocation line and wave must share the same service_section"
             )
+
+
+class SectionSetting(models.Model):
+    """
+    Durable per-section chef mode (D15). mode null until chef chooses — never silent default.
+    guided: banqueting* default true (prep plan); others false.
+    """
+
+    class Mode(models.TextChoices):
+        COUNTS = "counts", "Counts matter"
+        ORDERING = "ordering", "Just ordering"
+
+    section = models.CharField(
+        max_length=32,
+        choices=ServiceSectionCode.choices,
+        unique=True,
+        db_index=True,
+    )
+    mode = models.CharField(
+        max_length=16,
+        choices=Mode.choices,
+        null=True,
+        blank=True,
+        help_text="null until chef answers the mode prompt",
+    )
+    guided = models.BooleanField(
+        default=False,
+        help_text="Guided prep plan (banqueting defaults true)",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["section"]
+        verbose_name = "section setting"
+        verbose_name_plural = "section settings"
+
+    def __str__(self) -> str:
+        return f"{self.section} mode={self.mode or 'unset'} guided={self.guided}"

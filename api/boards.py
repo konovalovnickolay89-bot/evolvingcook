@@ -254,7 +254,7 @@ class ServiceDayOut(Schema):
 
 
 class BoardOut(Schema):
-    """One-request board payload for a single section (Phase 4 includes waves/outlets)."""
+    """One-request board payload for a single section (Phase 4 + D15 modes)."""
 
     service_date: date
     day_status: str
@@ -273,6 +273,12 @@ class BoardOut(Schema):
     lines: list[ProductionLineOut]
     line_count: int
     ticked_count: int
+    # D15 section modes — FE needs no extra round-trip
+    section_mode: str | None = None
+    mode_prompt_needed: bool = True
+    guided: bool = False
+    mode_recommendation: str | None = None
+    prep_plan: dict[str, Any] | None = None
 
 
 class LineOut(Schema):
@@ -522,6 +528,18 @@ def open_section(
         planning_services.open_service_section(
             day, section, generate_lines=body.generate_lines
         )
+        # D15: scaffold guided prep plan when mode=counts + guided
+        try:
+            from planning.section_modes import get_setting
+            from planning.prep_plan import ensure_prep_plan_proposals
+
+            st = get_setting(section)
+            if st.mode == "counts" and st.guided:
+                ensure_prep_plan_proposals(
+                    service_date=service_date, section=section
+                )
+        except Exception:  # noqa: BLE001
+            pass
         return _board_payload(service_date, section)
     except PlanningError as exc:
         raise _http_planning(exc) from exc
@@ -560,6 +578,25 @@ def _board_payload(service_date: date, section: str) -> dict:
         }
         for o in sec.outlets.all()
     ]
+    try:
+        from planning.section_modes import board_mode_fields
+
+        mode_fields = board_mode_fields(section)
+    except Exception:  # noqa: BLE001
+        mode_fields = {
+            "section_mode": None,
+            "mode_prompt_needed": True,
+            "guided": section in ("banqueting", "banquet_buffet"),
+            "mode_recommendation": None,
+        }
+    prep_plan = None
+    if mode_fields.get("guided") and mode_fields.get("section_mode") == "counts":
+        try:
+            from planning.prep_plan import prep_plan_board_payload
+
+            prep_plan = prep_plan_board_payload(section, service_date)
+        except Exception:  # noqa: BLE001
+            prep_plan = None
     return {
         "service_date": day.service_date,
         "day_status": day.status,
@@ -578,6 +615,8 @@ def _board_payload(service_date: date, section: str) -> dict:
         "lines": line_outs,
         "line_count": len(line_outs),
         "ticked_count": ticked_count,
+        **mode_fields,
+        "prep_plan": prep_plan,
     }
 
 

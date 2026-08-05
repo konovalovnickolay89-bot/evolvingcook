@@ -7,6 +7,7 @@ from planning.models import (
     LineComponent,
     LineEvent,
     ProductionLine,
+    SectionSetting,
     ServiceDay,
     ServiceOutlet,
     ServiceSection,
@@ -182,3 +183,11 @@ class LineEventAdmin(admin.ModelAdmin):
     list_filter = ("kind",)
     search_fields = ("line__name", "kind")
     readonly_fields = ("line", "kind", "payload", "created_at")
+
+
+@admin.register(SectionSetting)
+class SectionSettingAdmin(admin.ModelAdmin):
+    list_display = ("section", "mode", "guided", "decided_at", "updated_at")
+    list_filter = ("mode", "guided")
+    list_editable = ("mode", "guided")
+    readonly_fields = ("decided_at", "updated_at")

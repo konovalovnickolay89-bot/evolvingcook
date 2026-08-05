@@ -178,8 +178,8 @@ if not DEBUG:
     SECURE_SSL_REDIRECT = False  # tunnel hits plain HTTP on 127.0.0.1
 
 # --- App / contract versions ---
-APP_VERSION = env("APP_VERSION", "0.1.13")
-CONTRACT_VERSION = env("CONTRACT_VERSION", "0.1.13")
+APP_VERSION = env("APP_VERSION", "0.1.15")
+CONTRACT_VERSION = env("CONTRACT_VERSION", "0.1.15")
 
 # Phase 3 / D13: |counted − theoretical| at or below this → unexplained variance 0.
 # Absolute base-unit floor (not a percentage). Override via env if needed.
