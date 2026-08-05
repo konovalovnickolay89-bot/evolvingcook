@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|--------|
 | Decision | Chef chooses section mode once (counts vs ordering); guided prep for banquet*; proposal targets expand beyond note tiers |
-| Phase | Cross-cut on boards + assist (contract **0.1.15**) |
+| Phase | Cross-cut on boards + assist (contract **0.1.16**) |
 | FE | Grok — Section Modes / Assist Inbox mocks; this doc is backend SoT |
 | Supersedes | nothing (extends D11/D14) |
 
@@ -54,7 +54,7 @@ On `BoardOut` / GET section board:
 
 | Mode | Allowed assist work |
 |------|---------------------|
-| **ordering** | Menu-completeness (`component_fix` / incomplete recipes); order proposals (`order_packs` shortfall). **No** qty/par/morning planned_qty drafts. |
+| **ordering** | Menu-completeness (`component_fill` / incomplete recipes); order proposals (`order_packs` shortfall). **No** qty/par/morning planned_qty drafts. |
 | **counts** | Full pipeline: qty proposals (`planned_qty`), walk→order, note parse, day-open drafts. |
 | **counts + guided** | Day-open / on-demand **prep plan** (`prep_step` proposals), MEP-ordered. |
 | **mode null** | No automated qty or prep drafts until chef chooses. Note parse still allowed (reversible). |
@@ -100,7 +100,7 @@ In addition to D14 note tiers (`line` | `template` | `item`), proposals may decl
 | `planned_qty` | set/adjust line planned quantity | `ProductionLine.planned_qty` (+ event) |
 | `order_packs` | add packs to today's order / PO draft | purchasing path (existing order proposal hooks) |
 | `new_line` | add a board line | `ProductionLine` create |
-| `component_fix` | fix dish→ingredient list | `LineComponent` / template components |
+| `component_fill` | fix dish→ingredient list | `LineComponent` / template components |
 | `prep_step` | one guided plan step | accept into section prep plan snapshot |
 
 Note-tier targets remain for `parse_note`. Mixed bodies are invalid — one primary `target` per proposal.
@@ -123,4 +123,13 @@ Note-tier targets remain for `parse_note`. Mixed bodies are invalid — one prim
 
 ## 7. Contract
 
-Bump **APP_VERSION / CONTRACT_VERSION → 0.1.15**, regenerate `docs/openapi.json`.
+Bump **APP_VERSION / CONTRACT_VERSION → 0.1.16**, regenerate `docs/openapi.json`.
+
+
+## 8. Depth increment (0.1.16)
+
+- Accept handlers for `planned_qty`, `component_fill`, `order_packs`, `new_line`
+- Accept may send `{ "proposal": {…} }` overlay (FE Adjust / fill components)
+- Ordering board: component `stock_status` dots + line `to_order_count` + `order_assist` card
+- Deterministic `menu_completeness` + `order_suggest` scaffolds on ordering board fetch
+- `build_prep_plan_llm_prompt` ready for A2A rewrite (scaffold still default)

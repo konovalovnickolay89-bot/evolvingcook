@@ -57,13 +57,13 @@ COUNTS_ALLOWED_KINDS = frozenset(
 UNSET_ALLOWED_KINDS = frozenset({"parse_note"})
 
 # Proposal targets gated by mode
-ORDERING_TARGETS = frozenset({"order_packs", "component_fix", "line", "template", "item"})
+ORDERING_TARGETS = frozenset({"order_packs", "component_fill", "line", "template", "item"})
 COUNTS_TARGETS = frozenset(
     {
         "planned_qty",
         "order_packs",
         "new_line",
-        "component_fix",
+        "component_fill",
         "prep_step",
         "line",
         "template",
@@ -261,10 +261,10 @@ def assert_target_allowed(*, target: str, section: str | None) -> None:
             )
         return
     obj = get_setting(section)
-    mode = obj.mode
-    if mode == SectionSetting.Mode.ORDERING:
+    mode = (obj.mode or "").strip().lower()
+    if mode == "ordering":
         allowed = ORDERING_TARGETS
-    elif mode == SectionSetting.Mode.COUNTS:
+    elif mode == "counts":
         allowed = COUNTS_TARGETS
         if t == "prep_step" and not obj.guided:
             raise SectionModeError(

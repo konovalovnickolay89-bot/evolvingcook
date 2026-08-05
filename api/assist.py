@@ -92,6 +92,12 @@ class RejectIn(Schema):
     reason: str = ""
 
 
+class AcceptIn(Schema):
+    """Optional proposal overlay before accept (FE Adjust / fill components)."""
+
+    proposal: dict | None = None
+
+
 class ExplodeIn(Schema):
     item_id: int
     qty: DecimalQty = None
@@ -149,14 +155,39 @@ def get_proposal(request: HttpRequest, proposal_id: int):
     "/proposals/{proposal_id}/accept",
     response={200: ProposalOut, 400: ErrorOut, 404: ErrorOut},
 )
-def accept_proposal(request: HttpRequest, proposal_id: int):
+def accept_proposal(request: HttpRequest, proposal_id: int, body: AcceptIn = None):
     try:
+        # Optional FE overlay (adjust qty / fill components) before domain write
+        if body and isinstance(body.proposal, dict) and body.proposal:
+            from assist.models import AssistProposal as AP
+
+            try:
+                p0 = AP.objects.get(pk=proposal_id)
+            except AP.DoesNotExist:
+                return 404, {"detail": "not found", "code": "not_found"}
+            if p0.status == AP.Status.PENDING:
+                merged = dict(p0.proposal) if isinstance(p0.proposal, dict) else {}
+                merged.update(body.proposal)
+                p0.proposal = merged
+                # Clear inbox-only flag when FE supplied real structure
+                if p0.parse_error and proposal_has_structure_safe(merged):
+                    p0.parse_error = ""
+                p0.save(update_fields=["proposal", "parse_error", "updated_at"])
         p = accept_assist_proposal(proposal_id)
     except AssistProposal.DoesNotExist:
         return 404, {"detail": "not found", "code": "not_found"}
     except AssistError as exc:
         return 400, {"detail": str(exc), "code": exc.code}
     return 200, _proposal_out(p)
+
+
+def proposal_has_structure_safe(body: dict) -> bool:
+    try:
+        from assist.services import proposal_has_structure
+
+        return proposal_has_structure(body)
+    except Exception:
+        return False
 
 
 @router.post(
