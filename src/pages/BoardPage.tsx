@@ -10,15 +10,31 @@ import {
   untickComponent,
   untickLine,
 } from "@/api/boards";
-import { listProposals } from "@/api/assist";
+import { listProposals, acceptProposal, rejectProposal } from "@/api/assist";
+import { patchSectionSettings } from "@/api/sections";
 import { ApiError } from "@/api/client";
 import type { ProductionLineOut, ProposalOut } from "@/api/types";
 import { BoardLine } from "@/components/BoardLine";
 import { ProposalCard } from "@/components/ProposalCard";
+import { ModePill, ModePrompt } from "@/components/ModePrompt";
+import { OrderAssistCard } from "@/components/OrderAssistCard";
+import { PrepPlanStrip } from "@/components/PrepPlanStrip";
+import { QtyDraftStrip } from "@/components/QtyDraftStrip";
 import { EmptyState, LoadingState } from "@/components/AppShell";
-import { defaultQuickAddMode, SECTION_LABELS, type SectionId } from "@/contract";
+import {
+  defaultQuickAddMode,
+  SECTION_LABELS,
+  type SectionId,
+  type SectionMode,
+} from "@/contract";
 import { isEightySix } from "@/lib/lineDisplay";
-import { acceptProposal, rejectProposal } from "@/api/assist";
+import {
+  parseOrderAssist,
+  parsePrepPlan,
+  parseQtyDraft,
+  type QtyDraftItem,
+  type PrepStep,
+} from "@/lib/boardDepth";
 
 export type BoardFace = "mep" | "service";
 
@@ -36,6 +52,8 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [propBusy, setPropBusy] = useState<number | null>(null);
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeReceipt, setModeReceipt] = useState<string | null>(null);
 
   const key = ["board", serviceDate, section] as const;
   const title =
@@ -59,11 +77,15 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
       }
     },
     retry: 1,
-    // D14: lines carry pending_proposal — keep board warm after note save
     refetchInterval: (q) => {
       const lines = q.state.data?.lines ?? [];
       const anyPending = lines.some((l) => l.pending_proposal);
-      return anyPending ? 3000 : false;
+      const draft = parseQtyDraft(q.state.data?.qty_draft);
+      const prep = parsePrepPlan(q.state.data?.prep_plan);
+      const assistPending =
+        (draft?.items.some((i) => i.status === "pending") ?? false) ||
+        (prep?.steps.some((s) => s.status === "pending") ?? false);
+      return anyPending || assistPending ? 4000 : false;
     },
   });
 
@@ -71,12 +93,22 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     queryKey: ["proposals", "board", section, serviceDate],
     queryFn: async ({ signal }) => {
       const all = await listProposals({ status: "pending", limit: 50 }, signal);
-      // Board top strip: non-line / prep drafts only.
-      // parse_note lives inline on the row via pending_proposal (D14).
-      // parse_error is inbox-only.
+      // Strip: non-line drafts not already on board strips
       return all.filter((p) => {
         if (p.parse_error?.trim()) return false;
         if (p.kind === "parse_note") return false;
+        if (
+          p.kind === "qty_draft" ||
+          p.kind === "morning_qty" ||
+          p.kind === "order_suggest" ||
+          p.kind === "prep_plan" ||
+          p.target === "prep_step" ||
+          p.target === "planned_qty" ||
+          p.target === "order_packs"
+        ) {
+          // Surfaced via board.qty_draft / prep_plan / order_assist
+          return false;
+        }
         const c = p.context as { section?: string; service_date?: string };
         if (c.section && c.section === section) return true;
         if (p.kind === "draft_prep" || p.kind === "prep_line") {
@@ -181,6 +213,63 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     }
   }
 
+  async function chooseMode(mode: SectionMode, guided?: boolean) {
+    setModeBusy(true);
+    setActionError(null);
+    try {
+      const body =
+        guided === undefined
+          ? { mode }
+          : { mode, guided };
+      const res = await patchSectionSettings(section, body);
+      setModeReceipt(
+        mode === "counts"
+          ? "Counts — quantities tracked"
+          : "Ordering — menu + what to order",
+      );
+      await invalidate();
+      void res;
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Could not set mode");
+    } finally {
+      setModeBusy(false);
+    }
+  }
+
+  async function acceptWithOverlay(
+    proposalId: number,
+    overlay?: Record<string, unknown>,
+  ) {
+    setPropBusy(proposalId);
+    setActionError(null);
+    try {
+      await acceptProposal(
+        proposalId,
+        overlay ? { proposal: overlay } : null,
+      );
+      await invalidate();
+      await qc.invalidateQueries({ queryKey: ["proposals"] });
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Accept failed");
+    } finally {
+      setPropBusy(null);
+    }
+  }
+
+  async function passProposal(proposalId: number) {
+    setPropBusy(proposalId);
+    setActionError(null);
+    try {
+      await rejectProposal(proposalId, { reason: "" });
+      await invalidate();
+      await qc.invalidateQueries({ queryKey: ["proposals"] });
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Pass failed");
+    } finally {
+      setPropBusy(null);
+    }
+  }
+
   if (boardQ.isLoading) {
     return <LoadingState label="Loading board…" />;
   }
@@ -219,6 +308,21 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
   const board = boardQ.data!;
   const empty = lines.length === 0;
   const draftProps = draftPropsQ.data ?? [];
+  const sectionMode =
+    board.section_mode === "counts" || board.section_mode === "ordering"
+      ? (board.section_mode as SectionMode)
+      : null;
+  const modePrompt = Boolean(board.mode_prompt_needed) || sectionMode == null;
+  const guided = Boolean(board.guided);
+  const orderAssist =
+    sectionMode === "ordering" ? parseOrderAssist(board.order_assist) : null;
+  const qtyDraft =
+    sectionMode === "counts" ? parseQtyDraft(board.qty_draft) : null;
+  const prepPlan =
+    sectionMode === "counts" && guided
+      ? parsePrepPlan(board.prep_plan)
+      : null;
+
   const serviceCheck =
     face === "service" &&
     (section === "skybar" || section === "a_la_carte");
@@ -232,7 +336,10 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
           ← Day home
         </button>
         <div>
-          <h2 className="page-title">{title}</h2>
+          <h2 className="page-title">
+            {title}{" "}
+            <ModePill mode={sectionMode} guided={guided} />
+          </h2>
           <p className="page-lead" style={{ marginBottom: 0 }}>
             {serviceDate} ·{" "}
             {face === "mep" ? "MEP (pre-service)" : "Service"}
@@ -263,19 +370,73 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
           </button>
         </div>
 
-        <div className="progress-strip" aria-live="polite">
-          <span className="num num--actual">{stats.done}</span>
-          <span className="progress-strip__label">done</span>
-          <span className="num num--proposed">{stats.left}</span>
-          <span className="progress-strip__label">left</span>
-          <span className="num num--diverged">{stats.eightySix}</span>
-          <span className="progress-strip__label">86</span>
-          <span className="num num--planned">{stats.total}</span>
-          <span className="progress-strip__label">total</span>
-        </div>
+        {sectionMode !== "ordering" ? (
+          <div className="progress-strip" aria-live="polite">
+            <span className="num num--actual">{stats.done}</span>
+            <span className="progress-strip__label">done</span>
+            <span className="num num--proposed">{stats.left}</span>
+            <span className="progress-strip__label">left</span>
+            <span className="num num--diverged">{stats.eightySix}</span>
+            <span className="progress-strip__label">86</span>
+            <span className="num num--planned">{stats.total}</span>
+            <span className="progress-strip__label">total</span>
+          </div>
+        ) : (
+          <div className="progress-strip" aria-live="polite">
+            <span className="num num--planned">{stats.total}</span>
+            <span className="progress-strip__label">dishes</span>
+            <span className="num num--diverged">{stats.eightySix}</span>
+            <span className="progress-strip__label">86</span>
+          </div>
+        )}
       </div>
 
       {actionError ? <p className="field__error">{actionError}</p> : null}
+
+      {modePrompt ? (
+        <ModePrompt
+          section={section}
+          recommendation={board.mode_recommendation}
+          guidedDefault={board.guided}
+          busy={modeBusy}
+          onChoose={chooseMode}
+        />
+      ) : null}
+
+      {modeReceipt && !modePrompt ? (
+        <p className="mode-receipt">{modeReceipt}</p>
+      ) : null}
+
+      {orderAssist ? (
+        <OrderAssistCard
+          card={orderAssist}
+          busy={propBusy === orderAssist.proposal_id}
+          onAccept={() => void acceptWithOverlay(orderAssist.proposal_id)}
+          onPass={() => void passProposal(orderAssist.proposal_id)}
+        />
+      ) : null}
+
+      {prepPlan ? (
+        <PrepPlanStrip
+          plan={prepPlan}
+          busyId={propBusy}
+          onAccept={(step: PrepStep, overlay) =>
+            void acceptWithOverlay(step.proposal_id, overlay)
+          }
+          onPass={(step) => void passProposal(step.proposal_id)}
+        />
+      ) : null}
+
+      {qtyDraft ? (
+        <QtyDraftStrip
+          draft={qtyDraft}
+          busyId={propBusy}
+          onAccept={(item: QtyDraftItem, overlay) =>
+            void acceptWithOverlay(item.proposal_id, overlay)
+          }
+          onPass={(item) => void passProposal(item.proposal_id)}
+        />
+      ) : null}
 
       {draftProps.length > 0 ? (
         <div className="stack" style={{ gap: "var(--space-02)" }}>
@@ -284,6 +445,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
             <ProposalCard
               key={p.id}
               proposal={p}
+              compact
               busy={propBusy === p.id}
               onAccept={onAccept}
               onReject={onReject}
@@ -311,7 +473,12 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
       ) : (
         <div className="board">
           <div className="board__section-label">
-            {face === "mep" ? "Mise en place" : "Live service"} · {section}
+            {sectionMode === "ordering"
+              ? "Menu"
+              : face === "mep"
+                ? "Mise en place"
+                : "Live service"}{" "}
+            · {section}
           </div>
           {lines.map((line) => (
             <BoardLine
@@ -319,6 +486,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
               line={line}
               face={face}
               section={section}
+              sectionMode={sectionMode}
               busy={busyId === line.id}
               onTickLine={(l) => runLine(l, () => tickLine(l.id, null))}
               onUntickLine={(l) => runLine(l, () => untickLine(l.id))}

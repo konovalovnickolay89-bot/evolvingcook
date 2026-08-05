@@ -42,6 +42,11 @@ export type BatchDeliveryLinesIn = components["schemas"]["BatchDeliveryLinesIn"]
 
 export type ProposalOut = components["schemas"]["ProposalOut"];
 export type RejectIn = components["schemas"]["RejectIn"];
+export type AcceptIn = components["schemas"]["AcceptIn"];
 export type JobCreateIn = components["schemas"]["JobCreateIn"];
 export type JobOut = components["schemas"]["JobOut"];
 export type ExplodeIn = components["schemas"]["ExplodeIn"];
+
+export type SectionSettingOut = components["schemas"]["SectionSettingOut"];
+export type SectionSettingPatchIn = components["schemas"]["SectionSettingPatchIn"];
+export type SectionSettingsListOut = components["schemas"]["SectionSettingsListOut"];

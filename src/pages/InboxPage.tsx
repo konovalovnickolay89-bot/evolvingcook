@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptProposal,
+  createAssistJob,
   listProposals,
   rejectProposal,
 } from "@/api/assist";
@@ -9,7 +10,8 @@ import type { ProposalOut } from "@/api/types";
 import { ProposalCard } from "@/components/ProposalCard";
 import { EmptyState, LoadingState } from "@/components/AppShell";
 
-type Filter = "pending" | "accepted" | "rejected" | "all";
+/** Presentation: To review / Done — not raw status enums */
+type Filter = "review" | "done";
 
 type Props = {
   onBack: () => void;
@@ -21,18 +23,16 @@ function isParseErrorCard(p: ProposalOut): boolean {
 
 export function InboxPage({ onBack }: Props) {
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<Filter>("pending");
-  const [kind, setKind] = useState<string>("");
+  const [filter, setFilter] = useState<Filter>("review");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const q = useQuery({
-    queryKey: ["proposals", "inbox", filter, kind],
+    queryKey: ["proposals", "inbox", filter],
     queryFn: ({ signal }) =>
       listProposals(
         {
-          status: filter === "all" ? null : filter,
-          kind: kind || null,
+          status: filter === "review" ? "pending" : null,
           limit: 50,
         },
         signal,
@@ -41,15 +41,15 @@ export function InboxPage({ onBack }: Props) {
     refetchInterval: 8000,
   });
 
-  const kinds = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of q.data ?? []) set.add(p.kind);
-    return [...set].sort();
-  }, [q.data]);
-
   const list = useMemo(() => {
-    const rows = [...(q.data ?? [])];
-    // parse_error needs-attention first
+    let rows = [...(q.data ?? [])];
+    if (filter === "done") {
+      rows = rows.filter(
+        (p) => p.status === "accepted" || p.status === "rejected",
+      );
+    } else {
+      rows = rows.filter((p) => p.status === "pending");
+    }
     rows.sort((a, b) => {
       const ae = isParseErrorCard(a) ? 0 : 1;
       const be = isParseErrorCard(b) ? 0 : 1;
@@ -57,7 +57,7 @@ export function InboxPage({ onBack }: Props) {
       return b.created_at.localeCompare(a.created_at);
     });
     return rows;
-  }, [q.data]);
+  }, [q.data, filter]);
 
   const acceptMut = useMutation({
     mutationFn: (p: ProposalOut) => acceptProposal(p.id),
@@ -75,6 +75,33 @@ export function InboxPage({ onBack }: Props) {
       await qc.invalidateQueries({ queryKey: ["board"] });
     },
   });
+
+  /** Legitimate /assist/jobs use: parse_error Rewrite → resend */
+  async function onRewrite(p: ProposalOut, newText: string) {
+    const c = (p.context ?? {}) as {
+      line_id?: number;
+      section?: string;
+    };
+    setBusyId(p.id);
+    setError(null);
+    try {
+      await createAssistJob({
+        kind: "parse_note",
+        context: {
+          text: newText,
+          ...(c.line_id != null ? { line_id: c.line_id } : {}),
+          ...(c.section ? { section: c.section } : {}),
+        },
+      });
+      await rejectProposal(p.id, { reason: "rewritten" });
+      await qc.invalidateQueries({ queryKey: ["proposals"] });
+      await qc.invalidateQueries({ queryKey: ["board"] });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Rewrite failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const assistDown =
     q.isError &&
@@ -100,41 +127,24 @@ export function InboxPage({ onBack }: Props) {
       ) : null}
 
       <div className="face-toggle" role="tablist" aria-label="Status filter">
-        {(["pending", "accepted", "rejected", "all"] as Filter[]).map((f) => (
+        {(
+          [
+            ["review", "To review"],
+            ["done", "Done"],
+          ] as const
+        ).map(([id, label]) => (
           <button
-            key={f}
+            key={id}
             type="button"
             role="tab"
-            aria-selected={filter === f}
-            className={`face-toggle__btn${filter === f ? " is-on" : ""}`}
-            onClick={() => setFilter(f)}
+            aria-selected={filter === id}
+            className={`face-toggle__btn${filter === id ? " is-on" : ""}`}
+            onClick={() => setFilter(id)}
           >
-            {f}
+            {label}
           </button>
         ))}
       </div>
-
-      {kinds.length > 0 ? (
-        <div className="board-line__checks" style={{ flexWrap: "wrap" }}>
-          <button
-            type="button"
-            className={`chip${!kind ? " is-on" : ""}`}
-            onClick={() => setKind("")}
-          >
-            all kinds
-          </button>
-          {kinds.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`chip${kind === k ? " is-on" : ""}`}
-              onClick={() => setKind(k)}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {error ? <p className="field__error">{error}</p> : null}
       {q.isLoading ? <LoadingState label="Loading proposals…" /> : null}
@@ -143,9 +153,7 @@ export function InboxPage({ onBack }: Props) {
         <EmptyState
           title="No proposals waiting."
           body={
-            filter === "pending"
-              ? "Nothing to review."
-              : "No cards in this filter."
+            filter === "review" ? "Nothing to review." : "No decided cards yet."
           }
         />
       ) : null}
@@ -155,6 +163,7 @@ export function InboxPage({ onBack }: Props) {
           <ProposalCard
             key={p.id}
             proposal={p}
+            compact
             inbox
             busy={busyId === p.id}
             onAccept={async (pr) => {
@@ -180,6 +189,7 @@ export function InboxPage({ onBack }: Props) {
                 setBusyId(null);
               }
             }}
+            onRewrite={onRewrite}
           />
         ))}
       </div>

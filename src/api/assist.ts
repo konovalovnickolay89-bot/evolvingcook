@@ -1,5 +1,6 @@
 import { apiRequest } from "./client";
 import type {
+  AcceptIn,
   ExplodeIn,
   JobCreateIn,
   JobOut,
@@ -41,13 +42,15 @@ export function getProposal(
   });
 }
 
+/** Plain accept or AcceptIn overlay `{ proposal: { … } }` (0.1.17+) */
 export function acceptProposal(
   proposalId: number,
+  body: AcceptIn | null = null,
   signal?: AbortSignal,
 ): Promise<ProposalOut> {
   return apiRequest<ProposalOut>(`/assist/proposals/${proposalId}/accept`, {
     method: "POST",
-    body: null,
+    body,
     signal,
   });
 }

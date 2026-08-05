@@ -5,12 +5,17 @@ import {
 } from "@/contract";
 
 /**
- * Accept target from proposal payload (D14):
+ * Accept target (D14 / 0.1.14):
+ * Prefer top-level ProposalOut.target; fall back to proposal/context bags.
  * line → today only | template → every day on this dish | item → permanent
  */
 export function proposalTargetOf(
   p: ProposalOut | Record<string, unknown>,
 ): ProposalTargetKey {
+  const top =
+    "target" in p && p.target != null && p.target !== ""
+      ? String(p.target)
+      : null;
   const prop =
     "proposal" in p && p.proposal && typeof p.proposal === "object"
       ? (p.proposal as Record<string, unknown>)
@@ -21,6 +26,7 @@ export function proposalTargetOf(
       : {};
 
   const raw =
+    top ??
     prop.target ??
     prop.scope ??
     prop.apply_to ??
@@ -57,6 +63,80 @@ export function proposalTargetLabel(key: ProposalTargetKey): string {
   return PROPOSAL_TARGET_LABELS[key];
 }
 
+/** Backend 0.1.14: ProposalOut.target_confidence ∈ high | medium | low */
+export type TargetConfidence = "high" | "med" | "low";
+
+export function targetConfidenceOf(p: ProposalOut): TargetConfidence {
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  // Prefer top-level field (0.1.14); bag nested confidence only as fallback
+  const raw =
+    p.target_confidence ?? prop.target_confidence ?? prop.confidence;
+  const s = String(raw ?? "")
+    .toLowerCase()
+    .trim();
+  if (s === "high" || s === "h") return "high";
+  if (s === "medium" || s === "med" || s === "m") return "med";
+  if (s === "low" || s === "l") return "low";
+  const n = typeof raw === "number" ? raw : Number(raw);
+  if (Number.isFinite(n)) {
+    if (n >= 0.75) return "high";
+    if (n >= 0.45) return "med";
+    return "low";
+  }
+  return "med";
+}
+
+/** Human title: note — never kind enum, never raw note slice prefix */
+export function proposalTitle(p: ProposalOut): string {
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  const note =
+    (typeof prop.note === "string" && prop.note.trim()) ||
+    (typeof prop.summary === "string" && prop.summary.trim()) ||
+    (typeof prop.text === "string" && prop.text.trim()) ||
+    "";
+  const target = proposalTargetLabel(proposalTargetOf(p));
+  if (p.parse_error?.trim()) {
+    return "Couldn't read this note";
+  }
+  if (note) return note;
+  return `Proposal · ${target}`;
+}
+
+/** Context chip: resolved names from enriched context */
+export function proposalContextLabel(p: ProposalOut): string {
+  const c = (p.context ?? {}) as Record<string, unknown>;
+  if (typeof c.line_name === "string" && c.line_name.trim()) return c.line_name;
+  if (typeof c.item_name === "string" && c.item_name.trim()) return c.item_name;
+  if (typeof c.template_name === "string" && c.template_name.trim())
+    return c.template_name;
+  if (typeof c.section === "string" && c.section.trim()) return c.section;
+  return "";
+}
+
+/** Rationale before first " | " audit segment */
+export function rationaleDisplay(full: string): {
+  main: string;
+  audit: string | null;
+} {
+  const idx = full.indexOf(" | ");
+  if (idx === -1) return { main: full, audit: null };
+  return {
+    main: full.slice(0, idx).trim(),
+    audit: full.slice(idx + 3).trim() || null,
+  };
+}
+
+export function relativeAge(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h}h ago`;
+  return `${Math.round(h / 24)}d ago`;
+}
+
 /** Normalize board line.pending_proposal → ProposalOut for cards. */
 export function coercePendingProposal(
   raw: unknown,
@@ -71,7 +151,7 @@ export function coercePendingProposal(
 
   const parseError =
     typeof o.parse_error === "string" ? o.parse_error : "";
-  // D14: parse_error is inbox-only — never render Accept path on the row
+  // D14: parse_error is inbox-only
   if (parseError.trim()) return null;
 
   const context: { [key: string]: unknown } =
@@ -84,11 +164,27 @@ export function coercePendingProposal(
       ? { ...(o.proposal as object) }
       : {};
 
+  // Promote nested target/confidence if top-level missing (older payloads)
+  const target =
+    typeof o.target === "string"
+      ? o.target
+      : typeof proposal.target === "string"
+        ? (proposal.target as string)
+        : null;
+  const targetConfidence =
+    typeof o.target_confidence === "string"
+      ? o.target_confidence
+      : typeof proposal.target_confidence === "string"
+        ? (proposal.target_confidence as string)
+        : null;
+
   return {
     id: o.id,
     kind: typeof o.kind === "string" ? o.kind : "parse_note",
     context,
     proposal,
+    target,
+    target_confidence: targetConfidence,
     rationale: typeof o.rationale === "string" ? o.rationale : "",
     model: typeof o.model === "string" ? o.model : "",
     status: "pending",
@@ -117,18 +213,5 @@ export function coercePendingProposal(
       typeof o.updated_at === "string"
         ? o.updated_at
         : new Date().toISOString(),
-  };
-}
-
-/** Typed context only for parse_note jobs (D14). */
-export function parseNoteContext(input: {
-  text: string;
-  line_id: number;
-  section: string;
-}): { text: string; line_id: number; section: string } {
-  return {
-    text: input.text,
-    line_id: input.line_id,
-    section: input.section,
   };
 }

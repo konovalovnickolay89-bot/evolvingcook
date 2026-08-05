@@ -363,6 +363,40 @@ export interface paths {
         patch: operations["api_boards_patch_line_notes"];
         trace?: never;
     };
+    "/api/v1/sections/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** All six section mode settings (mode null until chef chooses) */
+        get: operations["api_sections_get_all_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sections/{section}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Upsert section mode (counts|ordering). Never silent default — chef choice. */
+        patch: operations["api_sections_patch_section_settings"];
+        trace?: never;
+    };
     "/api/v1/items/{item_id}/notes": {
         parameters: {
             query?: never;
@@ -931,7 +965,7 @@ export interface components {
         };
         /**
          * BoardOut
-         * @description One-request board payload for a single section (Phase 4 includes waves/outlets).
+         * @description One-request board payload for a single section (Phase 4 + D15 modes).
          */
         BoardOut: {
             /**
@@ -987,6 +1021,32 @@ export interface components {
             line_count: number;
             /** Ticked Count */
             ticked_count: number;
+            /** Section Mode */
+            section_mode?: string | null;
+            /**
+             * Mode Prompt Needed
+             * @default true
+             */
+            mode_prompt_needed: boolean;
+            /**
+             * Guided
+             * @default false
+             */
+            guided: boolean;
+            /** Mode Recommendation */
+            mode_recommendation?: string | null;
+            /** Prep Plan */
+            prep_plan?: {
+                [key: string]: unknown;
+            } | null;
+            /** Qty Draft */
+            qty_draft?: {
+                [key: string]: unknown;
+            } | null;
+            /** Order Assist */
+            order_assist?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** LineComponentOut */
         LineComponentOut: {
@@ -1012,6 +1072,28 @@ export interface components {
             done: boolean;
             /** Sort Order */
             sort_order: number;
+            /** Stock Status */
+            stock_status?: string | null;
+            /** Stock Status Text */
+            stock_status_text?: string | null;
+            /** Stock Qty */
+            stock_qty?: number | null;
+            /** On Order Qty */
+            on_order_qty?: number | null;
+            /** Supplier Code */
+            supplier_code?: string | null;
+            /** Par Qty */
+            par_qty?: number | null;
+            /** Stock Primary Qty */
+            stock_primary_qty?: number | null;
+            /** Primary Area Id */
+            primary_area_id?: number | null;
+            /** Primary Area Name */
+            primary_area_name?: string | null;
+            /** Stock By Area */
+            stock_by_area?: {
+                [key: string]: unknown;
+            }[] | null;
         };
         /** LineEventOut */
         LineEventOut: {
@@ -1104,6 +1186,12 @@ export interface components {
              * @default []
              */
             wave_allocations: components["schemas"]["WaveAllocationOut"][];
+            /** Ingredient Count */
+            ingredient_count?: number | null;
+            /** To Order Count */
+            to_order_count?: number | null;
+            /** Order Summary Label */
+            order_summary_label?: string | null;
         };
         /** WaveAllocationOut */
         WaveAllocationOut: {
@@ -1333,6 +1421,41 @@ export interface components {
             /** Notes */
             notes?: string | null;
         };
+        /** SectionSettingOut */
+        SectionSettingOut: {
+            /** Section */
+            section: string;
+            /** Mode */
+            mode?: string | null;
+            /**
+             * Guided
+             * @default false
+             */
+            guided: boolean;
+            /** Decided At */
+            decided_at?: string | null;
+            /**
+             * Mode Prompt Needed
+             * @default true
+             */
+            mode_prompt_needed: boolean;
+            /** Mode Recommendation */
+            mode_recommendation: string;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** SectionSettingsListOut */
+        SectionSettingsListOut: {
+            /** Settings */
+            settings: components["schemas"]["SectionSettingOut"][];
+        };
+        /** SectionSettingPatchIn */
+        SectionSettingPatchIn: {
+            /** Mode */
+            mode: string;
+            /** Guided */
+            guided?: boolean | null;
+        };
         /** ItemNoteOut */
         ItemNoteOut: {
             /** Id */
@@ -1481,6 +1604,8 @@ export interface components {
             purchase_order_ids: number[];
             /** Purchase Orders */
             purchase_orders: components["schemas"]["PurchaseOrderOut"][];
+            /** Assist Proposal Id */
+            assist_proposal_id?: number | null;
         };
         /** POLineOut */
         POLineOut: {
@@ -1776,6 +1901,10 @@ export interface components {
             proposal: {
                 [key: string]: unknown;
             };
+            /** Target */
+            target?: string | null;
+            /** Target Confidence */
+            target_confidence?: string | null;
             /** Rationale */
             rationale: string;
             /** Model */
@@ -1808,7 +1937,20 @@ export interface components {
             /** Updated At */
             updated_at: string;
         };
-        /** RejectIn */
+        /**
+         * AcceptIn
+         * @description Optional proposal overlay before accept (FE Adjust / fill components).
+         */
+        AcceptIn: {
+            /** Proposal */
+            proposal?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
+         * RejectIn
+         * @description Empty/omitted reason → service stores "other" (BE-1).
+         */
         RejectIn: {
             /**
              * Reason
@@ -2906,6 +3048,70 @@ export interface operations {
             };
         };
     };
+    api_sections_get_all_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SectionSettingsListOut"];
+                };
+            };
+        };
+    };
+    api_sections_patch_section_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                section: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SectionSettingPatchIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SectionSettingOut"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorOut"];
+                };
+            };
+        };
+    };
     api_items_patch_item_notes: {
         parameters: {
             query?: never;
@@ -3760,7 +3966,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptIn"] | null;
+            };
+        };
         responses: {
             /** @description OK */
             200: {

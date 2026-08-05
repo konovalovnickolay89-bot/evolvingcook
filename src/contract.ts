@@ -2,7 +2,7 @@
  * Contract version this build was generated against.
  * Regenerate src/api/schema.d.ts and bump this when openapi.json moves.
  */
-export const EXPECTED_CONTRACT_VERSION = "0.1.13" as const;
+export const EXPECTED_CONTRACT_VERSION = "0.1.18" as const;
 
 export const API_BASE = "https://api.apidiscoverysolution.uk/api/v1" as const;
 
@@ -39,6 +39,14 @@ export const SECTION_SERVICE_MODE: Record<
   banquet_buffet: "waves",
 };
 
+export type SectionMode = "counts" | "ordering";
+
+/** D15 — chef-facing mode labels (pill colours in CSS) */
+export const SECTION_MODE_LABELS: Record<SectionMode, string> = {
+  counts: "Counts",
+  ordering: "Ordering",
+};
+
 export function defaultQuickAddMode(section: string): string {
   if (section === "breakfast_buffet") return "replenish";
   if (section === "canteen") return "produce";
@@ -54,10 +62,7 @@ export const DELIVERY_NOTE_STATES = [
 
 export type DeliveryNoteState = (typeof DELIVERY_NOTE_STATES)[number];
 
-/**
- * Reject reason chips for assist proposals (§10a + D14 wrong-target).
- * "wrong scope" is first-class — feeds prompt tuning.
- */
+/** API reject reason values (sent on RejectIn.reason) */
 export const PROPOSAL_REJECT_REASONS = [
   "wrong scope",
   "wrong qty",
@@ -65,6 +70,18 @@ export const PROPOSAL_REJECT_REASONS = [
   "wrong item",
   "other",
 ] as const;
+
+/** Plain labels for reject chips (presentation) */
+export const PROPOSAL_REJECT_LABELS: Record<
+  (typeof PROPOSAL_REJECT_REASONS)[number],
+  string
+> = {
+  "wrong scope": "Wrong scope",
+  "wrong qty": "Wrong amount",
+  "not needed": "Not needed",
+  "wrong item": "Wrong item",
+  other: "Something else…",
+};
 
 /** D14 accept targets: line | template | item */
 export const PROPOSAL_TARGET_LABELS = {

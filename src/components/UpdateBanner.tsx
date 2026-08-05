@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useRegisterSW } from "virtual:pwa-register/react";
+import { forceAppRefresh } from "@/lib/forceRefresh";
 
 /**
  * PWA update path — stale cached build against a moved contract is a bad day.
- * registerType: "prompt" + visible action; skipWaiting only after Mykola taps.
+ * registerType: "prompt"; user tap runs skipWaiting + hard cache clear.
  */
 export function UpdateBanner() {
   const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const {
     needRefresh: [needRefresh, setNeedRefresh],
@@ -14,12 +16,13 @@ export function UpdateBanner() {
   } = useRegisterSW({
     immediate: true,
     onRegisteredSW(_swUrl, reg) {
-      // Poll for updates periodically while app is open
-      if (reg) {
-        setInterval(() => {
-          void reg.update();
-        }, 60 * 60 * 1000);
-      }
+      if (!reg) return;
+      // Kitchen shift is long — check for a new build every 5 minutes
+      const tick = () => {
+        void reg.update();
+      };
+      tick();
+      setInterval(tick, 5 * 60 * 1000);
     },
   });
 
@@ -35,13 +38,22 @@ export function UpdateBanner() {
       <button
         type="button"
         className="banner__action"
+        disabled={busy}
         onClick={() => {
-          void updateServiceWorker(true);
+          setBusy(true);
           setNeedRefresh(false);
-          setShow(false);
+          // Activate waiting worker, then nuclear clear so reload cannot stick
+          void (async () => {
+            try {
+              await updateServiceWorker(true);
+            } catch {
+              /* forceAppRefresh still runs */
+            }
+            await forceAppRefresh();
+          })();
         }}
       >
-        Reload
+        {busy ? "Reloading…" : "Reload"}
       </button>
     </div>
   );
