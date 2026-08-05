@@ -52,10 +52,17 @@ def on_order_qty(item_id: int | None) -> Decimal:
     return agg if agg is not None else Decimal("0")
 
 
-def ingredient_status_for_item(item_id: int | None) -> dict[str, Any]:
+def ingredient_status_for_item(
+    item_id: int | None,
+    *,
+    section: str | None = None,
+    weekday: int | None = None,
+) -> dict[str, Any]:
     """
     FE stock dots: green in_stock | yellow running_low | orange on_order | grey unknown.
-    Heuristic: qty<=0 and on_order>0 → on_order; qty<=0 → running_low; else in_stock.
+
+    Par-aware: when ParLevel exists on item default_area (or any area), compare
+    stock+on_order to par. Else fall back to zero/nonzero stock heuristic.
     """
     if not item_id:
         return {
@@ -63,22 +70,64 @@ def ingredient_status_for_item(item_id: int | None) -> dict[str, Any]:
             "status_text": "no catalogue link",
             "stock_qty": None,
             "on_order_qty": None,
+            "par_qty": None,
         }
     stock = total_stock_qty(item_id)
     oo = on_order_qty(item_id)
+    available = stock + oo
+
+    par = None
+    try:
+        from catalog.models import Item, ParLevel
+        from walks.services import par_for
+
+        item = Item.objects.filter(pk=item_id).only("id", "default_area_id").first()
+        wd = weekday if weekday is not None else timezone.localdate().weekday()
+        if item is not None and item.default_area_id:
+            par = par_for(item_id, item.default_area_id, wd)
+        if par is None:
+            # best par across any area (weekday then null)
+            row = (
+                ParLevel.objects.filter(item_id=item_id, weekday=wd)
+                .order_by("-qty")
+                .first()
+            )
+            if row is None:
+                row = (
+                    ParLevel.objects.filter(item_id=item_id, weekday__isnull=True)
+                    .order_by("-qty")
+                    .first()
+                )
+            if row is not None:
+                par = row.qty
+    except Exception:  # noqa: BLE001
+        par = None
+
+    par_f = float(par) if par is not None else None
+
     if stock <= 0 and oo > 0:
         st, text = "on_order", "on today's order"
-    elif stock <= 0:
-        st, text = "running_low", "running low / none counted"
-    elif stock < Decimal("1") and oo == 0:
-        st, text = "running_low", "running low"
+    elif par is not None:
+        if available <= 0:
+            st, text = "running_low", f"none vs par {par}"
+        elif available < par:
+            st, text = "running_low", f"{available} on hand/order vs par {par}"
+        else:
+            st, text = "in_stock", f"at/above par {par}"
     else:
-        st, text = "in_stock", "in stock"
+        if stock <= 0:
+            st, text = "running_low", "running low / none counted"
+        elif stock < Decimal("1"):
+            st, text = "running_low", "running low"
+        else:
+            st, text = "in_stock", "in stock"
+
     return {
         "status": st,
         "status_text": text,
         "stock_qty": float(stock),
         "on_order_qty": float(oo),
+        "par_qty": par_f,
     }
 
 
@@ -92,6 +141,7 @@ def enrich_component_dict(comp: dict, *, ordering_mode: bool) -> dict:
     out["stock_status_text"] = st["status_text"]
     out["stock_qty"] = st["stock_qty"]
     out["on_order_qty"] = st["on_order_qty"]
+    out["par_qty"] = st.get("par_qty")
     # supplier code when linked
     if item_id and not out.get("supplier_code"):
         from catalog.models import SupplierItem

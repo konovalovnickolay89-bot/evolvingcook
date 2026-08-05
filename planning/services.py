@@ -595,6 +595,13 @@ def set_section_covers(
     if notes is not None:
         sec.notes = notes
     sec.save()
+    # D15.1: guided prep plan working strings track covers
+    try:
+        from planning.d15_depth import refresh_prep_plan_after_covers
+
+        refresh_prep_plan_after_covers(service_date, section)
+    except Exception:  # noqa: BLE001
+        pass
     return sec
 
 

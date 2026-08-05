@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from django.http import HttpRequest
+from django.utils import timezone
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from pydantic import Field
@@ -126,6 +127,7 @@ class OrderProposalOut(Schema):
     walk_id: int
     purchase_order_ids: list[int]
     purchase_orders: list[PurchaseOrderOut]
+    assist_proposal_id: int | None = None
 
 
 def _http_walk(exc: WalkError) -> HttpError:
@@ -300,9 +302,25 @@ def order_proposal(request: HttpRequest, walk_id: int):
     except WalkError as exc:
         raise _http_walk(exc) from exc
 
+    # D15.1: also surface shortfall as Assist order_suggest (accept → order_packs)
+    assist_id = None
+    try:
+        from planning.d15_depth import ensure_order_suggest_from_walk
+        from walks.models import Walk
+
+        w = Walk.objects.filter(pk=walk_id).only("id").first()
+        prop = ensure_order_suggest_from_walk(
+            walk_id=walk_id,
+            service_date=timezone.localdate(),
+        )
+        assist_id = prop.pk if prop else None
+    except Exception:  # noqa: BLE001
+        assist_id = None
+
     po_outs = [_po_out(po) for po in pos]
     return {
         "walk_id": walk_id,
         "purchase_order_ids": [p["id"] for p in po_outs],
         "purchase_orders": po_outs,
+        "assist_proposal_id": assist_id,
     }

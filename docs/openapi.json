@@ -845,6 +845,17 @@
             ],
             "title": "On Order Qty"
           },
+          "par_qty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Par Qty"
+          },
           "planned_qty": {
             "title": "Planned Qty",
             "type": [
@@ -1210,6 +1221,17 @@
       },
       "OrderProposalOut": {
         "properties": {
+          "assist_proposal_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assist Proposal Id"
+          },
           "purchase_order_ids": {
             "items": {
               "type": "integer"
@@ -3078,7 +3100,7 @@
   "info": {
     "description": "Backend contract for Evolving Cook. Auth: Bearer token from /auth/login (Django signing, 30 days). 401 is never a reason to drop client data \u2014 re-auth and retry. Walk batch submit 401: re-auth and retry the batch; never discard line payloads. Phase 1.5: /boards/* MEP service boards (covers never required). Phase 2: /walks/* lifecycle + /purchasing/* PO draft\u2192send + delivery receipt. Phase 3: /inventory/* append-only stock ledger (balances, movements, waste, count_adjustment, transfer). Delivery complete \u2192 receipt movements; walk submit/lock \u2192 theoretical + unexplained variance (never auto-correct). Phase 4: /boards/* full planner \u2014 banquet BEO covers + waves + WaveAllocation (one line across waves), produce scale formula proposed_qty = scaling_covers * template.yield_per_cover (null yield \u2192 null proposed), canteen produce qty entered (not covers-derived), day close + outturn. Covers never required outside banquet*. D12/D14: line notes (today) + template_notes (dish template, every day) + item notes/house_made. NOTE\u2192ASSIST v2: note-save auto-enqueues parse_note; board lines carry pending_proposal inline; accept target line|template|item. D15: /sections/* section mode (counts|ordering, null until chef chooses); BoardOut carries section_mode, mode_prompt_needed, guided, mode_recommendation, prep_plan. Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); B15 explode via POST /assist/explode. Internal agent-events is NOT on /api/v1.",
     "title": "Evolving Cook API",
-    "version": "0.1.16"
+    "version": "0.1.17"
   },
   "openapi": "3.1.0",
   "paths": {
