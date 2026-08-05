@@ -1,6 +1,7 @@
 # Evolving Cook — Django backend
 
-**Phase 2 walk + ordering + D12 notes/house-made + D13 PO scope** on Debian (discovery-system). Stack per `docs/BACKEND_BUILD_INSTRUCTIONS.md`. Contract **0.1.9**.
+Kitchen ops API on Debian (discovery-system). Stack per `docs/BACKEND_BUILD_INSTRUCTIONS.md`.  
+**Live contract `0.1.18`** — phases 0–5 + D10–D15 (section modes, assist, ordering board).
 
 | Item | Value |
 |------|--------|
@@ -10,19 +11,22 @@
 | TZ | Europe/London |
 | DB | `evolving_cook` / role `evolving_cook_app` |
 | Unit | `systemctl --user` → `evolving-cook-django.service` |
-| Contract | `CONTRACT_VERSION=0.1.9` |
+| Contract | `APP_VERSION` / `CONTRACT_VERSION` = **0.1.18** (`.env` + settings) |
+| FE | Grok monorepo root — this tree is API only |
+| FE handoff | `docs/FE-SECTION-MODES.md` · `docs/FE-OPENAPI-SLICE.json` |
+| GitHub | `konovalovnickolay89-bot/evolvingcook` → `backend/` |
 
 ## Layout
 
 ```
 config/          Django project (settings, urls, wsgi)
-api/             ninja routers + auth + boards + walks + purchasing
+api/             ninja routers + auth + boards + sections + walks + purchasing + assist
 catalog/         Phase 1 models, admin, seed, ingest_catalog
-planning/        Phase 1.5 ServiceDay/Section, ProductionLine, templates
+planning/        boards, section modes, prep_plan, qty drafts, ordering_assist
 walks/           Phase 2 Walk / WalkLine + services
 purchasing/      Phase 2 PO / Delivery + services
 core inventory assist
-docs/            BACKEND_BUILD_INSTRUCTIONS.md, GROUND_TRUTH.md, openapi.json
+docs/            BACKEND_BUILD_INSTRUCTIONS, D10–D15, FE handoff, openapi.json
 deploy/          systemd user unit
 scripts/         deploy.sh, rollback.sh, export_openapi.py, phase*_gate.py
 sheets/          ALC CSVs + skybar-mep-list.csv when present

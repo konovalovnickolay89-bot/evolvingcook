@@ -17,8 +17,8 @@ for line in (ROOT / ".env").read_text().splitlines():
     k, _, v = line.partition("=")
     os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
-os.environ["APP_VERSION"] = "0.1.14"
-os.environ["CONTRACT_VERSION"] = "0.1.14"
+os.environ["APP_VERSION"] = "0.1.18"
+os.environ["CONTRACT_VERSION"] = "0.1.18"
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 import django
 
@@ -67,7 +67,7 @@ def fail(name, detail=None):
 
 
 def main() -> int:
-    assert settings.CONTRACT_VERSION == "0.1.14", settings.CONTRACT_VERSION
+    assert settings.CONTRACT_VERSION == "0.1.18", settings.CONTRACT_VERSION
     ok("contract", settings.CONTRACT_VERSION)
 
     # 1 empty text 400 path
