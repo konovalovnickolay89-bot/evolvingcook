@@ -96,6 +96,29 @@ def ensure_qty_draft_proposals(
         if ln.mode == ProductionLine.Mode.REPLENISH and ln.par_level is not None:
             working_parts.append(f"par on line = {ln.par_level}")
 
+        phase = "mep" if ln.kind in ("prep", "sauce", "stock") else "day_of"
+        clock_time = None
+        if kind == "morning_qty" and phase == "day_of":
+            # Backwards from service: default 12:30, or earliest wave serve_at
+            from datetime import datetime, time, timedelta
+
+            svc = time(12, 30)
+            try:
+                waves = list(sec.waves.all()) if hasattr(sec, "waves") else []
+                times = [w.serve_at for w in waves if getattr(w, "serve_at", None)]
+                if times:
+                    svc = min(times)
+            except Exception:
+                pass
+            # stagger by order index among day_of lines
+            day_i = sum(1 for c in created if (c.proposal or {}).get("phase") == "day_of")
+            offset = 30 + day_i * 15
+            clock_dt = datetime.combine(service_date, svc) - timedelta(minutes=offset)
+            clock_time = clock_dt.strftime("%H:%M")
+            working_parts.append(
+                f"clock {clock_time} = service {svc.strftime('%H:%M')} minus {offset}m"
+            )
+
         body = {
             "target": "planned_qty",
             "line_id": ln.pk,
@@ -103,8 +126,9 @@ def ensure_qty_draft_proposals(
             "planned_qty": _f(qty),
             "unit": ln.unit or "ea",
             "working": " · ".join(working_parts),
-            "phase": "mep" if ln.kind in ("prep", "sauce", "stock") else "day_of",
+            "phase": phase,
             "order_index": len(created),
+            "clock_time": clock_time,
             "prompt_version": PROMPT_VERSION,
             "rationale": f"qty draft for {ln.name}",
         }
@@ -439,3 +463,64 @@ def ensure_order_suggest_from_walk(
         model="scaffold-walk",
         status=AssistProposal.Status.PENDING,
     )
+
+
+def qty_draft_board_payload(*, section: str, service_date: date) -> dict | None:
+    """Separate FE strip from prep_plan — pending qty_draft/morning_qty proposals."""
+    try:
+        st = get_setting(section)
+    except Exception:
+        return None
+    if st.mode != "counts":
+        return None
+    steps = []
+    qs = (
+        AssistProposal.objects.filter(
+            kind__in=("qty_draft", "morning_qty"),
+            status__in=(
+                AssistProposal.Status.PENDING,
+                AssistProposal.Status.ACCEPTED,
+            ),
+        )
+        .order_by("id")
+    )
+    for p in qs[:200]:
+        ctx = p.context if isinstance(p.context, dict) else {}
+        prop = p.proposal if isinstance(p.proposal, dict) else {}
+        if ctx.get("section") != section and prop.get("section") != section:
+            continue
+        sd = str(ctx.get("service_date") or prop.get("service_date") or "")
+        if sd != str(service_date):
+            continue
+        steps.append(
+            {
+                "proposal_id": p.pk,
+                "kind": p.kind,
+                "status": p.status,
+                "accept_able": (
+                    p.status == AssistProposal.Status.PENDING
+                    and not p.parse_error
+                    and prop.get("target") == "planned_qty"
+                ),
+                "line_id": prop.get("line_id") or ctx.get("line_id"),
+                "line_name": prop.get("line_name"),
+                "planned_qty": prop.get("planned_qty"),
+                "unit": prop.get("unit"),
+                "working": prop.get("working"),
+                "phase": prop.get("phase"),
+                "order_index": prop.get("order_index"),
+                "clock_time": prop.get("clock_time"),
+                "target": "planned_qty",
+                "parse_error": p.parse_error or None,
+            }
+        )
+    steps.sort(
+        key=lambda s: (
+            0 if s.get("phase") == "mep" else 1,
+            s.get("order_index") if s.get("order_index") is not None else 999,
+            s.get("proposal_id") or 0,
+        )
+    )
+    if not steps:
+        return {"service_date": str(service_date), "section": section, "items": []}
+    return {"service_date": str(service_date), "section": section, "items": steps}

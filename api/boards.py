@@ -174,6 +174,10 @@ class LineComponentOut(Schema):
     on_order_qty: float | None = None
     supplier_code: str | None = None
     par_qty: float | None = None
+    stock_primary_qty: float | None = None
+    primary_area_id: int | None = None
+    primary_area_name: str | None = None
+    stock_by_area: list[dict[str, Any]] | None = None
 
 
 class LineEventOut(Schema):
@@ -290,6 +294,7 @@ class BoardOut(Schema):
     guided: bool = False
     mode_recommendation: str | None = None
     prep_plan: dict[str, Any] | None = None
+    qty_draft: dict[str, Any] | None = None
     order_assist: dict[str, Any] | None = None
 
 
@@ -636,13 +641,24 @@ def _board_payload(service_date: date, section: str) -> dict:
         for o in sec.outlets.all()
     ]
     prep_plan = None
+    qty_draft = None
     if mode_fields.get("section_mode") == "counts":
         try:
-            from planning.d15_depth import ensure_qty_draft_proposals
+            from planning.d15_depth import (
+                ensure_qty_draft_proposals,
+                qty_draft_board_payload,
+            )
 
-            ensure_qty_draft_proposals(service_date=service_date, section=section)
+            # morning_qty when non-guided counts (clock backs); qty_draft otherwise
+            kind = "morning_qty" if not mode_fields.get("guided") else "qty_draft"
+            ensure_qty_draft_proposals(
+                service_date=service_date, section=section, kind=kind
+            )
+            qty_draft = qty_draft_board_payload(
+                section=section, service_date=service_date
+            )
         except Exception:  # noqa: BLE001
-            pass
+            qty_draft = None
     if mode_fields.get("guided") and mode_fields.get("section_mode") == "counts":
         try:
             from planning.prep_plan import prep_plan_board_payload
@@ -690,6 +706,7 @@ def _board_payload(service_date: date, section: str) -> dict:
         "ticked_count": ticked_count,
         **mode_fields,
         "prep_plan": prep_plan,
+        "qty_draft": qty_draft,
         "order_assist": order_assist,
     }
 

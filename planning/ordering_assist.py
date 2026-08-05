@@ -31,6 +31,38 @@ def total_stock_qty(item_id: int | None) -> Decimal:
     return agg if agg is not None else Decimal("0")
 
 
+def stock_by_area(item_id: int | None, *, limit: int = 12) -> list[dict]:
+    """Per-area stock rows for FE expand (area-scoped, not only total)."""
+    if not item_id:
+        return []
+    rows = (
+        StockBalance.objects.filter(item_id=item_id)
+        .select_related("area")
+        .order_by("area__name")[:limit]
+    )
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "area_id": r.area_id,
+                "area_name": r.area.name if r.area_id else "",
+                "qty": float(r.qty) if r.qty is not None else 0.0,
+            }
+        )
+    return out
+
+
+def stock_in_area(item_id: int | None, area_id: int | None) -> Decimal | None:
+    if not item_id or not area_id:
+        return None
+    row = (
+        StockBalance.objects.filter(item_id=item_id, area_id=area_id)
+        .only("qty")
+        .first()
+    )
+    return row.qty if row is not None else Decimal("0")
+
+
 def on_order_qty(item_id: int | None) -> Decimal:
     """Open replenishment PO base qty for item (draft/sent/confirmed)."""
     if not item_id:
@@ -72,11 +104,14 @@ def ingredient_status_for_item(
             "on_order_qty": None,
             "par_qty": None,
         }
-    stock = total_stock_qty(item_id)
+    areas = stock_by_area(item_id)
+    stock_total = total_stock_qty(item_id)
     oo = on_order_qty(item_id)
-    available = stock + oo
 
     par = None
+    primary_area_id = None
+    primary_area_name = None
+    stock_primary = None
     try:
         from catalog.models import Item, ParLevel
         from walks.services import par_for
@@ -84,7 +119,13 @@ def ingredient_status_for_item(
         item = Item.objects.filter(pk=item_id).only("id", "default_area_id").first()
         wd = weekday if weekday is not None else timezone.localdate().weekday()
         if item is not None and item.default_area_id:
+            primary_area_id = item.default_area_id
             par = par_for(item_id, item.default_area_id, wd)
+            stock_primary = stock_in_area(item_id, item.default_area_id)
+            try:
+                primary_area_name = item.default_area.name if item.default_area_id else None
+            except Exception:
+                primary_area_name = None
         if par is None:
             # best par across any area (weekday then null)
             row = (
@@ -104,20 +145,24 @@ def ingredient_status_for_item(
         par = None
 
     par_f = float(par) if par is not None else None
+    # Prefer primary-area stock for par compare; fall back to house total
+    stock_cmp = stock_primary if stock_primary is not None else stock_total
+    available = (stock_cmp or Decimal("0")) + oo
 
-    if stock <= 0 and oo > 0:
+    if (stock_cmp or Decimal("0")) <= 0 and oo > 0:
         st, text = "on_order", "on today's order"
     elif par is not None:
         if available <= 0:
             st, text = "running_low", f"none vs par {par}"
         elif available < par:
-            st, text = "running_low", f"{available} on hand/order vs par {par}"
+            where = f" in {primary_area_name}" if primary_area_name else ""
+            st, text = "running_low", f"{available} on hand/order{where} vs par {par}"
         else:
             st, text = "in_stock", f"at/above par {par}"
     else:
-        if stock <= 0:
+        if stock_total <= 0:
             st, text = "running_low", "running low / none counted"
-        elif stock < Decimal("1"):
+        elif stock_total < Decimal("1"):
             st, text = "running_low", "running low"
         else:
             st, text = "in_stock", "in stock"
@@ -125,9 +170,13 @@ def ingredient_status_for_item(
     return {
         "status": st,
         "status_text": text,
-        "stock_qty": float(stock),
+        "stock_qty": float(stock_total),
+        "stock_primary_qty": float(stock_cmp) if stock_cmp is not None else None,
+        "primary_area_id": primary_area_id,
+        "primary_area_name": primary_area_name,
         "on_order_qty": float(oo),
         "par_qty": par_f,
+        "stock_by_area": areas,
     }
 
 
@@ -140,8 +189,12 @@ def enrich_component_dict(comp: dict, *, ordering_mode: bool) -> dict:
     out["stock_status"] = st["status"]
     out["stock_status_text"] = st["status_text"]
     out["stock_qty"] = st["stock_qty"]
+    out["stock_primary_qty"] = st.get("stock_primary_qty")
+    out["primary_area_id"] = st.get("primary_area_id")
+    out["primary_area_name"] = st.get("primary_area_name")
     out["on_order_qty"] = st["on_order_qty"]
     out["par_qty"] = st.get("par_qty")
+    out["stock_by_area"] = st.get("stock_by_area") or []
     # supplier code when linked
     if item_id and not out.get("supplier_code"):
         from catalog.models import SupplierItem
