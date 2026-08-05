@@ -732,7 +732,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create Job */
+        /** Enqueue assist job. parse_note: context.text required (notes alias OK). */
         post: operations["api_assist_create_job"];
         delete?: never;
         options?: never;
@@ -996,6 +996,10 @@ export interface components {
             item_id?: number | null;
             /** Item Name */
             item_name?: string | null;
+            /** Item House Made */
+            item_house_made?: boolean | null;
+            /** Item Notes */
+            item_notes?: string | null;
             /** Supplier Item Id */
             supplier_item_id?: number | null;
             /** Name */
@@ -1076,12 +1080,21 @@ export interface components {
             source: string;
             /** Notes */
             notes: string;
+            /**
+             * Template Notes
+             * @default
+             */
+            template_notes: string;
             /** Sort Order */
             sort_order: number;
             /** Template Id */
             template_id?: number | null;
             /** Yield Per Cover */
             yield_per_cover?: number | null;
+            /** Pending Proposal */
+            pending_proposal?: {
+                [key: string]: unknown;
+            } | null;
             /** Components */
             components: components["schemas"]["LineComponentOut"][];
             /** Events */
@@ -1785,6 +1798,11 @@ export interface components {
              * @default
              */
             parse_error: string;
+            /**
+             * Accept Able
+             * @default false
+             */
+            accept_able: boolean;
             /** Created At */
             created_at: string;
             /** Updated At */

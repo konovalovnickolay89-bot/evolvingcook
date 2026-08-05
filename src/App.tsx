@@ -7,7 +7,7 @@ import { WalkPage } from "@/pages/WalkPage";
 import { OrdersPage } from "@/pages/OrdersPage";
 import { DeliveryPage } from "@/pages/DeliveryPage";
 import { InboxPage } from "@/pages/InboxPage";
-import { isTokenPresent } from "@/lib/tokenStorage";
+import { clearAccessToken, isTokenPresent } from "@/lib/tokenStorage";
 import { ensureDbOpen } from "@/db";
 
 type BoardTarget = { serviceDate: string; section: string } | null;
@@ -50,6 +50,12 @@ function deliveryIdFromHash(): number | null {
   return Number(m[1]);
 }
 
+/** Auth-only — never clears Dexie / walk data. */
+function openLoginScreen(): void {
+  clearAccessToken();
+  window.location.hash = "#/login";
+}
+
 export function App() {
   const [authed, setAuthed] = useState(() => isTokenPresent());
   const [route, setRoute] = useState<Route>(() =>
@@ -70,13 +76,27 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // No token → login is the published entry surface
+    if (!isTokenPresent()) {
+      setAuthed(false);
+      setRoute("login");
+      if (!window.location.hash || window.location.hash === "#/" || window.location.hash === "#") {
+        window.location.hash = "#/login";
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     const onHash = () => {
-      if (!isTokenPresent()) {
+      const r = routeFromHash();
+      if (r === "login" || !isTokenPresent()) {
+        if (r === "login") clearAccessToken();
+        setAuthed(false);
         setRoute("login");
         setBoardTarget(null);
         return;
       }
-      const r = routeFromHash();
+      setAuthed(true);
       setRoute(r);
       setBoardTarget(r === "board" ? boardFromHash() : null);
       if (r === "orders") setPoIds(poIdsFromHash());
@@ -103,7 +123,8 @@ export function App() {
 
   const navigate = useCallback((r: AppRoute) => {
     if (r === "login") {
-      window.location.hash = "#/login";
+      openLoginScreen();
+      setAuthed(false);
       setRoute("login");
       setBoardTarget(null);
       return;
@@ -144,9 +165,21 @@ export function App() {
     setRoute("boards");
   }, []);
 
+  const onOpenLogin = useCallback(() => {
+    openLoginScreen();
+    setAuthed(false);
+    setRoute("login");
+    setBoardTarget(null);
+  }, []);
+
   if (!authed || route === "login") {
     return (
-      <AppShell route="login" onNavigate={navigate} hideNav>
+      <AppShell
+        route="login"
+        onNavigate={navigate}
+        hideNav
+        onOpenLogin={onOpenLogin}
+      >
         <LoginPage onSuccess={onLoginSuccess} />
       </AppShell>
     );
@@ -190,7 +223,11 @@ export function App() {
         : route;
 
   return (
-    <AppShell route={shellRoute} onNavigate={navigate}>
+    <AppShell
+      route={shellRoute}
+      onNavigate={navigate}
+      onOpenLogin={onOpenLogin}
+    >
       {body}
     </AppShell>
   );

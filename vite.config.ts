@@ -6,17 +6,29 @@ import { fileURLToPath } from "node:url";
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** Hosts Vite must accept (Vite 8 blocks unknown Host → blank published UI). */
+const ALLOWED_HOSTS = [
+  "evolvingcook.grok.me",
+  ".grok.me",
+  ".grok-sandbox.com",
+  "localhost",
+  "127.0.0.1",
+] as const;
+
 // Preview contract: 0.0.0.0:8080. SPA only — browser talks to API directly.
+// Published FE origin: https://evolvingcook.grok.me (CORS allowlisted on API).
 export default defineConfig({
   server: {
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    allowedHosts: [...ALLOWED_HOSTS],
   },
   preview: {
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    allowedHosts: [...ALLOWED_HOSTS],
   },
   resolve: {
     alias: {
@@ -76,8 +88,7 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        enabled: true,
-        type: "module",
+        enabled: false,
       },
     }),
   ],

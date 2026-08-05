@@ -2,14 +2,19 @@ import { useState } from "react";
 import type { ProposalOut } from "@/api/types";
 import { PROPOSAL_REJECT_REASONS } from "@/contract";
 import { formatDecimal } from "@/lib/decimal";
+import {
+  proposalTargetLabel,
+  proposalTargetOf,
+} from "@/lib/proposalTarget";
 
 type Props = {
   proposal: ProposalOut;
   busy?: boolean;
-  /** low confidence: require expanded before accept (§10d) */
   onAccept: (p: ProposalOut) => void;
   onReject: (p: ProposalOut, reason: string) => void;
   compact?: boolean;
+  /** When true, render as inbox attention card (parse_error path) */
+  inbox?: boolean;
 };
 
 function confidenceOf(p: ProposalOut): "high" | "med" | "low" {
@@ -22,7 +27,6 @@ function confidenceOf(p: ProposalOut): "high" | "med" | "low" {
     if (n >= 0.45) return "med";
     return "low";
   }
-  // empty model/rationale from gate → treat as med
   if (!p.rationale && !p.model) return "med";
   return "med";
 }
@@ -31,13 +35,15 @@ function summaryLine(p: ProposalOut): string {
   const prop = p.proposal as Record<string, unknown>;
   if (typeof prop.note === "string" && prop.note) return prop.note;
   if (typeof prop.summary === "string" && prop.summary) return prop.summary;
+  if (typeof prop.text === "string" && prop.text) return prop.text;
   if (p.kind === "parse_note") {
     const text =
-      (p.context as { notes?: string; text?: string }).notes ||
-      (p.context as { text?: string }).text ||
+      (p.context as { notes?: string; text?: string }).text ||
+      (p.context as { notes?: string }).notes ||
       "";
-    return text ? `Parse note: ${text.slice(0, 80)}` : "Parse note";
+    return text ? `Parse: ${text.slice(0, 80)}` : "Parse note";
   }
+  if (p.parse_error) return "Parse failed";
   return p.kind.replace(/_/g, " ");
 }
 
@@ -66,8 +72,9 @@ export function ProposalCard({
   onAccept,
   onReject,
   compact,
+  inbox,
 }: Props) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(inbox && proposal.parse_error));
   const [rejectOpen, setRejectOpen] = useState(false);
   const [otherNote, setOtherNote] = useState("");
   const conf = confidenceOf(proposal);
@@ -77,22 +84,39 @@ export function ProposalCard({
     ? (prop.components as Array<Record<string, unknown>>)
     : [];
   const houseMade = Boolean(prop.house_made);
-
-  const canSwipeAccept = conf !== "low";
+  const target = proposalTargetOf(proposal);
+  const targetLabel = proposalTargetLabel(target);
+  const isParseError = Boolean(proposal.parse_error?.trim());
+  const canAccept =
+    pending &&
+    !isParseError &&
+    proposal.accept_able !== false &&
+    (conf !== "low" || open);
 
   return (
     <article
-      className={`proposal-card${pending ? " proposal-card--pending" : ""}${
-        open ? " is-open" : ""
-      }`}
+      className={[
+        "proposal-card",
+        pending ? "proposal-card--pending" : "",
+        open ? "is-open" : "",
+        isParseError ? "proposal-card--parse-error" : "",
+        `proposal-card--target-${target}`,
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <button
         type="button"
         className="proposal-card__main"
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="board-row__badge board-row__badge--assist" aria-label="assist">
-          A
+        <span
+          className={`board-row__badge board-row__badge--assist${
+            isParseError ? " board-row__badge--error" : ""
+          }`}
+          aria-label={isParseError ? "parse error" : "assist"}
+        >
+          {isParseError ? "!" : "A"}
         </span>
         <div className="board-row__main">
           <span className="board-row__name proposal-card__title">
@@ -105,7 +129,16 @@ export function ProposalCard({
             {" · "}
             {ageLabel(proposal.created_at)}
             {!pending ? ` · ${proposal.status}` : ""}
+            {isParseError ? " · needs attention" : ""}
           </span>
+          {!isParseError ? (
+            <span
+              className={`target-chip target-chip--${target}`}
+              title="Accept target"
+            >
+              {targetLabel}
+            </span>
+          ) : null}
         </div>
         {houseMade ? (
           <span className="house-tag" title="house made">
@@ -116,13 +149,20 @@ export function ProposalCard({
 
       {open || !compact ? (
         <div className="proposal-card__body">
+          {!isParseError ? (
+            <div className={`target-banner target-banner--${target}`}>
+              <span className="target-banner__k">Applies</span>
+              <span className="target-banner__v">{targetLabel}</span>
+            </div>
+          ) : null}
+
           {proposal.rationale ? (
             <p className="proposal-card__rationale">{proposal.rationale}</p>
-          ) : (
+          ) : !isParseError ? (
             <p className="proposal-card__rationale proposal-card__rationale--empty">
               No rationale attached.
             </p>
-          )}
+          ) : null}
 
           {components.length > 0 ? (
             <ul className="proposal-card__comps">
@@ -142,8 +182,10 @@ export function ProposalCard({
             </ul>
           ) : null}
 
-          {proposal.parse_error ? (
-            <p className="field__error">{proposal.parse_error}</p>
+          {isParseError ? (
+            <p className="field__error proposal-card__parse-error">
+              {proposal.parse_error}
+            </p>
           ) : null}
 
           {proposal.status === "rejected" && proposal.reject_reason ? (
@@ -164,7 +206,9 @@ export function ProposalCard({
                     <button
                       key={r}
                       type="button"
-                      className="chip chip--danger"
+                      className={`chip chip--danger${
+                        r === "wrong scope" ? " chip--scope" : ""
+                      }`}
                       disabled={busy}
                       onClick={() => {
                         if (r === "other") return;
@@ -205,25 +249,31 @@ export function ProposalCard({
               </div>
             ) : (
               <div className="board-line__checks">
-                <button
-                  type="button"
-                  className="chip chip--ok"
-                  disabled={busy || (conf === "low" && !open)}
-                  title={
-                    conf === "low" && !open
-                      ? "Expand low-confidence proposals before accept"
-                      : undefined
-                  }
-                  onClick={() => {
-                    if (conf === "low" && !open) {
-                      setOpen(true);
-                      return;
+                {!isParseError ? (
+                  <button
+                    type="button"
+                    className="chip chip--ok"
+                    disabled={busy || !canAccept}
+                    title={
+                      conf === "low" && !open
+                        ? "Expand low-confidence proposals before accept"
+                        : undefined
                     }
-                    onAccept(proposal);
-                  }}
-                >
-                  Accept
-                </button>
+                    onClick={() => {
+                      if (conf === "low" && !open) {
+                        setOpen(true);
+                        return;
+                      }
+                      onAccept(proposal);
+                    }}
+                  >
+                    Accept
+                  </button>
+                ) : (
+                  <span className="board-row__meta" style={{ color: "var(--red)" }}>
+                    no Accept — parse error
+                  </span>
+                )}
                 <button
                   type="button"
                   className="chip chip--danger"
@@ -232,9 +282,6 @@ export function ProposalCard({
                 >
                   Reject
                 </button>
-                {!canSwipeAccept ? (
-                  <span className="board-row__meta">low conf — expand first</span>
-                ) : null}
               </div>
             )
           ) : null}

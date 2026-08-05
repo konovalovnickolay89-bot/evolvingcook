@@ -59,13 +59,24 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
       }
     },
     retry: 1,
+    // D14: lines carry pending_proposal — keep board warm after note save
+    refetchInterval: (q) => {
+      const lines = q.state.data?.lines ?? [];
+      const anyPending = lines.some((l) => l.pending_proposal);
+      return anyPending ? 3000 : false;
+    },
   });
 
   const draftPropsQ = useQuery({
     queryKey: ["proposals", "board", section, serviceDate],
     queryFn: async ({ signal }) => {
       const all = await listProposals({ status: "pending", limit: 50 }, signal);
+      // Board top strip: non-line / prep drafts only.
+      // parse_note lives inline on the row via pending_proposal (D14).
+      // parse_error is inbox-only.
       return all.filter((p) => {
+        if (p.parse_error?.trim()) return false;
+        if (p.kind === "parse_note") return false;
         const c = p.context as { section?: string; service_date?: string };
         if (c.section && c.section === section) return true;
         if (p.kind === "draft_prep" || p.kind === "prep_line") {
@@ -162,6 +173,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     try {
       await rejectProposal(p.id, { reason });
       await qc.invalidateQueries({ queryKey: ["proposals"] });
+      await invalidate();
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Reject failed");
     } finally {
@@ -267,9 +279,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
 
       {draftProps.length > 0 ? (
         <div className="stack" style={{ gap: "var(--space-02)" }}>
-          <div className="board__section-label">
-            proposed — not accepted
-          </div>
+          <div className="board__section-label">proposed — not accepted</div>
           {draftProps.map((p) => (
             <ProposalCard
               key={p.id}
@@ -308,6 +318,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
               key={line.id}
               line={line}
               face={face}
+              section={section}
               busy={busyId === line.id}
               onTickLine={(l) => runLine(l, () => tickLine(l.id, null))}
               onUntickLine={(l) => runLine(l, () => untickLine(l.id))}
@@ -323,72 +334,78 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
                   await invalidate();
                 } catch (e) {
                   setActionError(
-                    e instanceof Error ? e.message : "Component update failed",
+                    e instanceof Error ? e.message : "Component tick failed",
                   );
                 } finally {
                   setBusyId(null);
                 }
               }}
               onSaveNotes={async (l, notes) => {
-                await runLine(l, () =>
-                  setLineNotes(l.id, { notes: notes.trim() || null }),
-                );
+                setBusyId(l.id);
+                setActionError(null);
+                try {
+                  await setLineNotes(l.id, {
+                    notes: notes.trim() ? notes : null,
+                  });
+                  await invalidate();
+                } catch (e) {
+                  setActionError(
+                    e instanceof Error ? e.message : "Note save failed",
+                  );
+                  throw e;
+                } finally {
+                  setBusyId(null);
+                }
               }}
             />
           ))}
         </div>
       )}
 
-      <div className="quick-add">
-        {!quickOpen ? (
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            onClick={() => setQuickOpen(true)}
-          >
-            + Quick-add line
-          </button>
-        ) : (
-          <form
-            className="quick-add__form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const name = quickName.trim();
-              if (!name) return;
-              quickMut.mutate(name);
-            }}
-          >
-            <input
-              className="field__input"
-              placeholder="Line name"
-              value={quickName}
-              onChange={(e) => setQuickName(e.target.value)}
-              autoFocus
-              enterKeyHint="done"
-              autoCapitalize="sentences"
-            />
-            <div className="quick-add__row">
+      {quickOpen || !empty ? (
+        <div className="quick-add">
+          {!quickOpen ? (
+            <button
+              type="button"
+              className="btn btn--ghost btn--block"
+              onClick={() => setQuickOpen(true)}
+            >
+              + Quick-add line
+            </button>
+          ) : (
+            <>
+              <label className="field__label" htmlFor="qa-name">
+                Line name
+              </label>
+              <div className="quick-add__row">
+                <input
+                  id="qa-name"
+                  className="field__input"
+                  value={quickName}
+                  onChange={(e) => setQuickName(e.target.value)}
+                  placeholder="e.g. lemon wedges"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={!quickName.trim() || quickMut.isPending}
+                  onClick={() => quickMut.mutate(quickName.trim())}
+                >
+                  Add
+                </button>
+              </div>
               <button
                 type="button"
-                className="btn btn--ghost"
-                onClick={() => {
-                  setQuickOpen(false);
-                  setQuickName("");
-                }}
+                className="link-back"
+                onClick={() => setQuickOpen(false)}
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                className="btn btn--primary"
-                disabled={!quickName.trim() || quickMut.isPending}
-              >
-                {quickMut.isPending ? "Adding…" : "Add"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+            </>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

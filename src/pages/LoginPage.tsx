@@ -29,7 +29,7 @@ export function LoginPage({ onSuccess }: Props) {
     if (err instanceof ApiError) {
       if (err.status === 0 || err.message.includes("Failed to fetch")) {
         errorMsg =
-          "Cannot reach API (network or CORS). Origin may not be allowlisted yet.";
+          "Cannot reach API (network or CORS). Origin below must be allowlisted.";
       } else if (err.status === 401) {
         errorMsg = err.body?.detail ?? "Invalid email or password";
       } else if (err.status === 429) {
@@ -39,7 +39,7 @@ export function LoginPage({ onSuccess }: Props) {
       }
     } else if (err instanceof TypeError) {
       errorMsg =
-        "Cannot reach API (network or CORS). Origin may not be allowlisted yet.";
+        "Cannot reach API (network or CORS). Origin below must be allowlisted.";
     } else {
       errorMsg = "Login failed";
     }
@@ -56,14 +56,14 @@ export function LoginPage({ onSuccess }: Props) {
       <form className="login__form" onSubmit={onSubmit} noValidate>
         <div className="field">
           <label className="field__label" htmlFor="email">
-            Email
+            Email / username
           </label>
           <input
             id="email"
             className="field__input"
-            type="email"
+            type="text"
             autoComplete="username"
-            inputMode="email"
+            inputMode="text"
             enterKeyHint="next"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -102,8 +102,12 @@ export function LoginPage({ onSuccess }: Props) {
       </form>
 
       <div className="login__origin">
-        CORS origin (report to API allowlist)
-        <strong>{origin}</strong>
+        <span className="login__origin-label">This build origin (CORS)</span>
+        <strong className="login__origin-value">{origin}</strong>
+        <span className="login__origin-hint">
+          Live preview origin is what the API allowlist needs — not a local
+          agent address.
+        </span>
       </div>
     </div>
   );

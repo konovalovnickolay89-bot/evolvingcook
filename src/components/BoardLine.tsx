@@ -1,14 +1,9 @@
-import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { ProductionLineOut, ProposalOut } from "@/api/types";
-import {
-  createAssistJob,
-  getAssistJob,
-  listProposals,
-  acceptProposal,
-  rejectProposal,
-} from "@/api/assist";
-import { BoardRow } from "./BoardRow";
+import { createAssistJob } from "@/api/assist";
+import { acceptProposal, rejectProposal } from "@/api/assist";
+import { BoardRow, type NoteAssistState } from "./BoardRow";
 import { ProposalCard } from "./ProposalCard";
 import {
   checkStateFromLine,
@@ -19,11 +14,16 @@ import {
   replenishNums,
 } from "@/lib/lineDisplay";
 import { formatDecimal } from "@/lib/decimal";
+import {
+  coercePendingProposal,
+  parseNoteContext,
+} from "@/lib/proposalTarget";
 import type { BoardFace } from "@/pages/BoardPage";
 
 type Props = {
   line: ProductionLineOut;
   face?: BoardFace;
+  section?: string;
   busy?: boolean;
   onTickLine: (line: ProductionLineOut) => void;
   onUntickLine: (line: ProductionLineOut) => void;
@@ -35,6 +35,7 @@ type Props = {
 export function BoardLine({
   line,
   face = "mep",
+  section,
   busy,
   onTickLine,
   onUntickLine,
@@ -45,9 +46,9 @@ export function BoardLine({
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(line.notes || "");
-  const [jobId, setJobId] = useState<number | null>(null);
-  const [jobMsg, setJobMsg] = useState<string | null>(null);
+  const [assistState, setAssistState] = useState<NoteAssistState>("idle");
   const [actionBusy, setActionBusy] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   const mode = normalizeMode(line.mode);
   const meta = lineMeta(line);
@@ -57,97 +58,77 @@ export function BoardLine({
   const totalComp = line.components.length;
   const showAs = mode;
 
+  const pendingInline = useMemo(
+    () => coercePendingProposal(line.pending_proposal, line.id),
+    [line.pending_proposal, line.id],
+  );
+
   useEffect(() => {
     setNoteDraft(line.notes || "");
   }, [line.notes, line.id]);
 
-  const linePropsQ = useQuery({
-    queryKey: ["proposals", "line", line.id],
-    queryFn: async ({ signal }) => {
-      const all = await listProposals({ limit: 50 }, signal);
-      return all.filter((p) => {
-        const c = p.context as { line_id?: number };
-        return c.line_id === line.id;
-      });
-    },
-    enabled: open,
-    refetchInterval: open ? 4000 : false,
-    retry: false,
-  });
-
-  const jobQ = useQuery({
-    queryKey: ["assist-job", jobId],
-    queryFn: ({ signal }) => getAssistJob(jobId!, signal),
-    enabled: jobId != null,
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      if (s === "queued" || s === "running" || s === "pending") return 1500;
-      return false;
-    },
-    retry: false,
-  });
-
+  // Drive chip from payload: pending → ready; else keep local parsing until silence
   useEffect(() => {
-    if (!jobQ.data) return;
-    if (jobQ.data.status === "failed") {
-      setJobMsg(
-        jobQ.data.error?.includes("A2A") || jobQ.data.error?.includes("unreachable")
-          ? "assist offline"
-          : jobQ.data.error || "Job failed",
-      );
+    if (pendingInline) {
+      setAssistState("ready");
+      return;
     }
-    if (jobQ.data.status === "done" || jobQ.data.status === "completed") {
-      void qc.invalidateQueries({ queryKey: ["proposals"] });
-      void qc.invalidateQueries({ queryKey: ["proposals", "line", line.id] });
-    }
-  }, [jobQ.data, qc, line.id]);
+    setAssistState((prev) => (prev === "ready" ? "idle" : prev));
+  }, [pendingInline]);
 
-  const pendingForLine = (linePropsQ.data ?? []).filter(
-    (p) => p.status === "pending",
-  );
-  const recentForLine = (linePropsQ.data ?? []).filter(
-    (p) => p.status !== "pending",
-  ).slice(0, 2);
-
-  async function saveAndMaybeParse() {
+  async function saveNoteOnly() {
     if (!onSaveNotes) return;
-    setJobMsg(null);
-    await onSaveNotes(line, noteDraft);
+    setSaveMsg(null);
     const text = noteDraft.trim();
-    if (!text) return;
-    try {
-      const job = await createAssistJob({
-        kind: "parse_note",
-        context: {
-          line_id: line.id,
-          notes: text,
-          section: line.category || undefined,
-          item_id: line.item_id,
-        },
-      });
-      setJobId(job.id);
-      if (job.status === "failed") {
-        setJobMsg(
-          job.error?.includes("A2A") || job.error?.includes("unreachable")
-            ? "assist offline"
-            : job.error || "Job failed",
-        );
-      }
-    } catch (e) {
-      setJobMsg(
-        e instanceof Error && /A2A|unreachable|fetch|network/i.test(e.message)
-          ? "assist offline"
-          : e instanceof Error
-            ? e.message
-            : "Could not start parse",
-      );
+    await onSaveNotes(line, noteDraft);
+
+    // Instant chip; silence if empty (no structure to parse)
+    if (!text) {
+      setAssistState("idle");
+      return;
     }
+
+    setAssistState("parsing");
+
+    // Typed context only (D14). Server also auto-enqueues on note-save;
+    // client job ensures parse when A2A path needs an explicit enqueue.
+    const sectionKey = section || line.category || "";
+    try {
+      await createAssistJob({
+        kind: "parse_note",
+        context: parseNoteContext({
+          text,
+          line_id: line.id,
+          section: sectionKey,
+        }),
+      });
+    } catch {
+      // Auto-enqueue may already have fired — keep polling board.
+    }
+
+    // Poll board until pending_proposal or silence (no structure)
+    const started = Date.now();
+    const poll = async () => {
+      await qc.invalidateQueries({ queryKey: ["board"] });
+      // parent refresh updates line; if still parsing after timeout → silence
+      if (Date.now() - started > 25_000) {
+        setAssistState((s) => (s === "parsing" ? "idle" : s));
+        return;
+      }
+      window.setTimeout(() => {
+        void poll();
+      }, 2000);
+    };
+    window.setTimeout(() => {
+      void poll();
+    }, 1200);
   }
 
   async function onAccept(p: ProposalOut) {
     setActionBusy(true);
     try {
       await acceptProposal(p.id);
+      setAssistState("idle");
       await qc.invalidateQueries({ queryKey: ["proposals"] });
       await qc.invalidateQueries({ queryKey: ["board"] });
     } finally {
@@ -159,11 +140,16 @@ export function BoardLine({
     setActionBusy(true);
     try {
       await rejectProposal(p.id, { reason });
+      setAssistState("idle");
       await qc.invalidateQueries({ queryKey: ["proposals"] });
+      await qc.invalidateQueries({ queryKey: ["board"] });
     } finally {
       setActionBusy(false);
     }
   }
+
+  const templateNotes = (line.template_notes || "").trim();
+  const lineNotes = (line.notes || "").trim();
 
   return (
     <div
@@ -175,7 +161,9 @@ export function BoardLine({
         mode={showAs}
         name={line.name}
         houseMade={houseMade}
-        noteChip={line.notes ? line.notes : null}
+        noteChip={lineNotes || null}
+        templateNoteChip={templateNotes || null}
+        noteAssistState={assistState}
         meta={
           totalComp
             ? `${meta ? `${meta} · ` : ""}${doneCount}/${totalComp} components`
@@ -195,6 +183,19 @@ export function BoardLine({
         <div className="board-line__actions">
           {line.supports_lounge ? (
             <span className="covers-chip">covers: lounge</span>
+          ) : null}
+
+          {/* Inline pending proposal first — one-handed accept in the row (D14) */}
+          {pendingInline ? (
+            <div className="stack" style={{ gap: "var(--space-02)" }}>
+              <div className="board__section-label">proposal · not accepted</div>
+              <ProposalCard
+                proposal={pendingInline}
+                busy={actionBusy}
+                onAccept={onAccept}
+                onReject={onReject}
+              />
+            </div>
           ) : null}
 
           {showAs === "check" ? (
@@ -239,7 +240,6 @@ export function BoardLine({
             </div>
           )}
 
-          {/* Components always — for house_made show as constituent breakdown */}
           {totalComp > 0 ? (
             <div>
               <div className="board__section-label">
@@ -300,53 +300,20 @@ export function BoardLine({
               <div className="quick-add__row">
                 <button
                   type="button"
-                  className="btn btn--ghost"
+                  className="btn btn--primary btn--block"
                   disabled={busy || noteDraft === (line.notes || "")}
-                  onClick={() => void saveAndMaybeParse()}
+                  onClick={() => {
+                    void saveNoteOnly().catch((e) =>
+                      setSaveMsg(
+                        e instanceof Error ? e.message : "Save failed",
+                      ),
+                    );
+                  }}
                 >
-                  Save note
+                  Save
                 </button>
               </div>
-              {jobMsg ? (
-                <p className="board-row__meta" style={{ color: "var(--comment)" }}>
-                  {jobMsg}
-                </p>
-              ) : null}
-              {jobQ.data &&
-              (jobQ.data.status === "queued" ||
-                jobQ.data.status === "running") ? (
-                <p className="board-row__meta">Parsing note…</p>
-              ) : null}
-            </div>
-          ) : null}
-
-          {pendingForLine.length > 0 ? (
-            <div className="stack" style={{ gap: "var(--space-02)" }}>
-              <div className="board__section-label">parse_note · not accepted</div>
-              {pendingForLine.map((p) => (
-                <ProposalCard
-                  key={p.id}
-                  proposal={p}
-                  busy={actionBusy}
-                  onAccept={onAccept}
-                  onReject={onReject}
-                />
-              ))}
-            </div>
-          ) : null}
-
-          {recentForLine.length > 0 && pendingForLine.length === 0 ? (
-            <div className="stack" style={{ gap: "var(--space-02)" }}>
-              {recentForLine.map((p) => (
-                <ProposalCard
-                  key={p.id}
-                  proposal={p}
-                  busy={actionBusy}
-                  onAccept={onAccept}
-                  onReject={onReject}
-                  compact
-                />
-              ))}
+              {saveMsg ? <p className="field__error">{saveMsg}</p> : null}
             </div>
           ) : null}
 
@@ -362,6 +329,12 @@ export function BoardLine({
                 <>
                   <span className="board-row-detail__k">House made</span>
                   <span className="board-row-detail__v">yes</span>
+                </>
+              ) : null}
+              {templateNotes ? (
+                <>
+                  <span className="board-row-detail__k">Template note</span>
+                  <span className="board-row-detail__v">↻ {templateNotes}</span>
                 </>
               ) : null}
             </div>

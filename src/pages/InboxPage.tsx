@@ -15,6 +15,10 @@ type Props = {
   onBack: () => void;
 };
 
+function isParseErrorCard(p: ProposalOut): boolean {
+  return Boolean(p.parse_error?.trim());
+}
+
 export function InboxPage({ onBack }: Props) {
   const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("pending");
@@ -45,7 +49,13 @@ export function InboxPage({ onBack }: Props) {
 
   const list = useMemo(() => {
     const rows = [...(q.data ?? [])];
-    rows.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    // parse_error needs-attention first
+    rows.sort((a, b) => {
+      const ae = isParseErrorCard(a) ? 0 : 1;
+      const be = isParseErrorCard(b) ? 0 : 1;
+      if (ae !== be) return ae - be;
+      return b.created_at.localeCompare(a.created_at);
+    });
     return rows;
   }, [q.data]);
 
@@ -62,6 +72,7 @@ export function InboxPage({ onBack }: Props) {
       rejectProposal(p.id, { reason }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["proposals"] });
+      await qc.invalidateQueries({ queryKey: ["board"] });
     },
   });
 
@@ -144,8 +155,10 @@ export function InboxPage({ onBack }: Props) {
           <ProposalCard
             key={p.id}
             proposal={p}
+            inbox
             busy={busyId === p.id}
             onAccept={async (pr) => {
+              if (isParseErrorCard(pr)) return;
               setBusyId(pr.id);
               setError(null);
               try {

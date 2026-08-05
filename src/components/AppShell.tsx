@@ -11,9 +11,17 @@ type Props = {
   onNavigate: (r: AppRoute) => void;
   children: ReactNode;
   hideNav?: boolean;
+  /** Tap session chip to re-auth (clears token only). */
+  onOpenLogin?: () => void;
 };
 
-export function AppShell({ route, onNavigate, children, hideNav }: Props) {
+export function AppShell({
+  route,
+  onNavigate,
+  children,
+  hideNav,
+  onOpenLogin,
+}: Props) {
   const token = getAccessToken();
   const tokenHint = token ? `${token.slice(0, 6)}…` : "no token";
 
@@ -29,12 +37,23 @@ export function AppShell({ route, onNavigate, children, hideNav }: Props) {
           <p className="app-header__sub">Hilton London Wembley</p>
           <h1 className="app-header__title">Evolving Cook</h1>
         </div>
-        <span
-          className="session-chip"
-          title="Auth token present in localStorage"
-        >
-          {tokenHint}
-        </span>
+        {onOpenLogin ? (
+          <button
+            type="button"
+            className="session-chip session-chip--btn"
+            title="Sign in / switch account"
+            onClick={onOpenLogin}
+          >
+            {tokenHint}
+          </button>
+        ) : (
+          <span
+            className="session-chip"
+            title="Auth token present in localStorage"
+          >
+            {tokenHint}
+          </span>
+        )}
       </header>
 
       <main className="app-main">{children}</main>
@@ -97,21 +116,5 @@ export function EmptyState({
       <p className="state-panel__body">{body}</p>
       {action}
     </div>
-  );
-}
-
-/** Quiet placeholder for phases not yet on contract */
-export function PhasePlaceholder({
-  title,
-  phase,
-}: {
-  title: string;
-  phase: string;
-}) {
-  return (
-    <EmptyState
-      title={title}
-      body={`${phase} lands when the API ships the contract. No mock data.`}
-    />
   );
 }

@@ -3,6 +3,9 @@ import { useState } from "react";
 export type LineMode = "produce" | "replenish" | "check";
 export type CheckState = "present" | "confirm" | "86";
 
+/** D14 note→assist chip under the name */
+export type NoteAssistState = "idle" | "parsing" | "ready";
+
 export type ProduceNums = {
   proposed: number | null;
   planned: number | null;
@@ -20,9 +23,12 @@ export type BoardRowProps = {
   mode: LineMode;
   name: string;
   meta?: string;
-  /** D12: saved note as --comment chip under name */
+  /** D12/D14: today's line note as --comment chip */
   noteChip?: string | null;
-  /** house_made flag */
+  /** D14 template notes — same chip family + ↻ glyph */
+  templateNoteChip?: string | null;
+  /** ··· parsing | A proposal ready | silence */
+  noteAssistState?: NoteAssistState;
   houseMade?: boolean;
   produce?: ProduceNums;
   replenish?: ReplenishNums;
@@ -57,12 +63,36 @@ function ModeBadge({ mode }: { mode: LineMode }) {
   );
 }
 
+function NoteAssistChip({ state }: { state: NoteAssistState }) {
+  if (state === "idle") return null;
+  if (state === "parsing") {
+    return (
+      <span className="note-assist-chip note-assist-chip--parsing" title="Parsing">
+        ···
+      </span>
+    );
+  }
+  return (
+    <span
+      className="note-assist-chip note-assist-chip--ready"
+      title="Proposal ready"
+    >
+      <span className="note-assist-chip__a" aria-hidden>
+        A
+      </span>
+      proposal ready
+    </span>
+  );
+}
+
 export function BoardRow(props: BoardRowProps) {
   const [open, setOpen] = useState(false);
   const is86 = props.mode === "check" && props.check === "86";
 
   const progress =
     props.mode === "produce" ? (props.produce?.progress ?? null) : null;
+
+  const assist = props.noteAssistState ?? "idle";
 
   return (
     <div>
@@ -85,9 +115,18 @@ export function BoardRow(props: BoardRowProps) {
               </span>
             ) : null}
           </span>
+          {props.templateNoteChip ? (
+            <span className="note-chip note-chip--template">
+              <span className="note-chip__repeat" aria-hidden>
+                ↻
+              </span>
+              {props.templateNoteChip}
+            </span>
+          ) : null}
           {props.noteChip ? (
             <span className="note-chip">{props.noteChip}</span>
           ) : null}
+          <NoteAssistChip state={assist} />
           {props.meta ? (
             <span className="board-row__meta">{props.meta}</span>
           ) : null}

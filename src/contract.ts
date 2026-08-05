@@ -2,7 +2,7 @@
  * Contract version this build was generated against.
  * Regenerate src/api/schema.d.ts and bump this when openapi.json moves.
  */
-export const EXPECTED_CONTRACT_VERSION = "0.1.12" as const;
+export const EXPECTED_CONTRACT_VERSION = "0.1.13" as const;
 
 export const API_BASE = "https://api.apidiscoverysolution.uk/api/v1" as const;
 
@@ -54,13 +54,26 @@ export const DELIVERY_NOTE_STATES = [
 
 export type DeliveryNoteState = (typeof DELIVERY_NOTE_STATES)[number];
 
-/** Reject reason chips for assist proposals (§10a) */
+/**
+ * Reject reason chips for assist proposals (§10a + D14 wrong-target).
+ * "wrong scope" is first-class — feeds prompt tuning.
+ */
 export const PROPOSAL_REJECT_REASONS = [
+  "wrong scope",
   "wrong qty",
   "not needed",
   "wrong item",
   "other",
 ] as const;
+
+/** D14 accept targets: line | template | item */
+export const PROPOSAL_TARGET_LABELS = {
+  line: "today only",
+  template: "every day on this dish",
+  item: "permanent",
+} as const;
+
+export type ProposalTargetKey = keyof typeof PROPOSAL_TARGET_LABELS;
 
 export const WALK_AREA_LABELS = [
   "Walk-in fridge",
