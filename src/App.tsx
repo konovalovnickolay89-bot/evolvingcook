@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { AppShell, type AppRoute } from "@/components/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { BoardsPage } from "@/pages/BoardsPage";
 import { BoardPage } from "@/pages/BoardPage";
+import { StationLogPage } from "@/pages/StationLogPage";
 import { WalkPage } from "@/pages/WalkPage";
 import { OrdersPage } from "@/pages/OrdersPage";
 import { DeliveryPage } from "@/pages/DeliveryPage";
@@ -10,9 +11,9 @@ import { InboxPage } from "@/pages/InboxPage";
 import { clearAccessToken, isTokenPresent } from "@/lib/tokenStorage";
 import { ensureDbOpen } from "@/db";
 
-type BoardTarget = { serviceDate: string; section: string } | null;
+type StationTarget = { serviceDate: string; section: string } | null;
 
-type Route = AppRoute | "delivery" | "inbox";
+type Route = AppRoute | "delivery" | "inbox" | "station-log";
 
 function routeFromHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
@@ -21,14 +22,22 @@ function routeFromHash(): Route {
   if (h === "inbox") return "inbox";
   if (h.startsWith("delivery/")) return "delivery";
   if (h === "orders" || h.startsWith("orders")) return "orders";
+  if (h.startsWith("station/")) return "station-log";
   if (h.startsWith("board/")) return "board";
   if (h === "boards" || h === "") return "boards";
   return "boards";
 }
 
-function boardFromHash(): BoardTarget {
+function boardFromHash(): StationTarget {
   const h = window.location.hash.replace(/^#\/?/, "");
   const m = /^board\/(\d{4}-\d{2}-\d{2})\/([a-z0-9_]+)$/i.exec(h);
+  if (!m) return null;
+  return { serviceDate: m[1]!, section: m[2]! };
+}
+
+function stationLogFromHash(): StationTarget {
+  const h = window.location.hash.replace(/^#\/?/, "");
+  const m = /^station\/(\d{4}-\d{2}-\d{2})\/([a-z0-9_]+)\/log$/i.exec(h);
   if (!m) return null;
   return { serviceDate: m[1]!, section: m[2]! };
 }
@@ -50,6 +59,12 @@ function deliveryIdFromHash(): number | null {
   return Number(m[1]);
 }
 
+function stationFromRoute(r: Route): StationTarget {
+  if (r === "board") return boardFromHash();
+  if (r === "station-log") return stationLogFromHash();
+  return null;
+}
+
 /** Auth-only — never clears Dexie / walk data. */
 function openLoginScreen(): void {
   clearAccessToken();
@@ -61,8 +76,8 @@ export function App() {
   const [route, setRoute] = useState<Route>(() =>
     isTokenPresent() ? routeFromHash() : "login",
   );
-  const [boardTarget, setBoardTarget] = useState<BoardTarget>(() =>
-    isTokenPresent() ? boardFromHash() : null,
+  const [station, setStation] = useState<StationTarget>(() =>
+    isTokenPresent() ? stationFromRoute(routeFromHash()) : null,
   );
   const [poIds, setPoIds] = useState<number[]>(() =>
     isTokenPresent() ? poIdsFromHash() : [],
@@ -76,11 +91,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    // No token → login is the published entry surface
     if (!isTokenPresent()) {
       setAuthed(false);
       setRoute("login");
-      if (!window.location.hash || window.location.hash === "#/" || window.location.hash === "#") {
+      if (
+        !window.location.hash ||
+        window.location.hash === "#/" ||
+        window.location.hash === "#"
+      ) {
         window.location.hash = "#/login";
       }
     }
@@ -93,12 +111,12 @@ export function App() {
         if (r === "login") clearAccessToken();
         setAuthed(false);
         setRoute("login");
-        setBoardTarget(null);
+        setStation(null);
         return;
       }
       setAuthed(true);
       setRoute(r);
-      setBoardTarget(r === "board" ? boardFromHash() : null);
+      setStation(stationFromRoute(r));
       if (r === "orders") setPoIds(poIdsFromHash());
       if (r === "delivery") setDeliveryId(deliveryIdFromHash());
     };
@@ -112,7 +130,7 @@ export function App() {
       setAuthed((prev) => {
         if (prev && !has) {
           setRoute("login");
-          setBoardTarget(null);
+          setStation(null);
           return false;
         }
         return has;
@@ -126,20 +144,31 @@ export function App() {
       openLoginScreen();
       setAuthed(false);
       setRoute("login");
-      setBoardTarget(null);
+      setStation(null);
       return;
     }
     if (r === "board") return;
     window.location.hash = `#/${r}`;
     setRoute(r);
-    setBoardTarget(null);
+    setStation(null);
     setDeliveryId(null);
   }, []);
 
-  const openSection = useCallback((serviceDate: string, section: string) => {
+  const openStationLog = useCallback((serviceDate: string, section: string) => {
+    window.location.hash = `#/station/${serviceDate}/${section}/log`;
+    setStation({ serviceDate, section });
+    setRoute("station-log");
+  }, []);
+
+  const openBoard = useCallback((serviceDate: string, section: string) => {
     window.location.hash = `#/board/${serviceDate}/${section}`;
-    setBoardTarget({ serviceDate, section });
+    setStation({ serviceDate, section });
     setRoute("board");
+  }, []);
+
+  const openWalk = useCallback(() => {
+    window.location.hash = "#/walk";
+    setRoute("walk");
   }, []);
 
   const openOrders = useCallback((ids: number[]) => {
@@ -154,11 +183,6 @@ export function App() {
     setRoute("delivery");
   }, []);
 
-  const openInbox = useCallback(() => {
-    window.location.hash = "#/inbox";
-    setRoute("inbox");
-  }, []);
-
   const onLoginSuccess = useCallback(() => {
     setAuthed(true);
     window.location.hash = "#/boards";
@@ -169,7 +193,7 @@ export function App() {
     openLoginScreen();
     setAuthed(false);
     setRoute("login");
-    setBoardTarget(null);
+    setStation(null);
   }, []);
 
   if (!authed || route === "login") {
@@ -185,7 +209,7 @@ export function App() {
     );
   }
 
-  let body: React.ReactNode;
+  let body: ReactNode;
   if (route === "walk") {
     body = <WalkPage onOpenOrders={openOrders} />;
   } else if (route === "inbox") {
@@ -201,22 +225,31 @@ export function App() {
     body = (
       <OrdersPage initialPoIds={poIds} onOpenDelivery={openDelivery} />
     );
-  } else if (route === "board" && boardTarget) {
+  } else if (route === "station-log" && station) {
+    body = (
+      <StationLogPage
+        serviceDate={station.serviceDate}
+        section={station.section}
+        onBack={() => navigate("boards")}
+        onContinue={() => openBoard(station.serviceDate, station.section)}
+        onOpenWalk={openWalk}
+      />
+    );
+  } else if (route === "board" && station) {
     body = (
       <BoardPage
-        serviceDate={boardTarget.serviceDate}
-        section={boardTarget.section}
-        onBack={() => navigate("boards")}
+        serviceDate={station.serviceDate}
+        section={station.section}
+        onBack={() => openStationLog(station.serviceDate, station.section)}
+        onOpenWalk={openWalk}
       />
     );
   } else {
-    body = (
-      <BoardsPage onOpenSection={openSection} onOpenInbox={openInbox} />
-    );
+    body = <BoardsPage onOpenStation={openStationLog} />;
   }
 
   const shellRoute: AppRoute =
-    route === "board" || route === "inbox"
+    route === "board" || route === "inbox" || route === "station-log"
       ? "boards"
       : route === "delivery"
         ? "orders"

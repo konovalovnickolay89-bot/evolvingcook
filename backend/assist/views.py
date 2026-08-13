@@ -107,3 +107,70 @@ def agent_events(request: HttpRequest) -> HttpResponse:
         )
 
     return JsonResponse(result, status=200)
+
+
+@csrf_exempt
+def intelligence_assign(request: HttpRequest) -> HttpResponse:
+    """
+    Programmatic provider assignment. Loopback only. Not on /api/v1.
+    GET  — list assignments + resolved default
+    PUT  — { "task": "station_log", "provider": "rules|hermes|grok", "section": "" }
+    """
+    if settings.A2A_INTERNAL_LOOPBACK_ONLY and not _is_loopback(_client_ip(request)):
+        return JsonResponse(
+            {"detail": "loopback only", "code": "forbidden_remote"},
+            status=403,
+        )
+    from assist.models import IntelligenceAssignment
+    from assist.providers import PROVIDERS, assign_provider, resolve_provider
+    from planning.services import PlanningError
+
+    if request.method == "GET":
+        rows = [
+            {
+                "task": r.task,
+                "provider": r.provider,
+                "section": r.section or None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in IntelligenceAssignment.objects.all()
+        ]
+        return JsonResponse(
+            {
+                "assignments": rows,
+                "env_default": getattr(settings, "STATION_LOG_PROVIDER", "rules"),
+                "resolved": resolve_provider(None),
+            }
+        )
+
+    if request.method not in {"PUT", "POST"}:
+        return JsonResponse({"detail": "method not allowed", "code": "method"}, status=405)
+
+    try:
+        payload = json.loads((request.body or b"{}").decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({"detail": "invalid json", "code": "bad_json"}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({"detail": "payload must be object", "code": "bad_json"}, status=400)
+    provider = str(payload.get("provider") or "").strip()
+    if provider not in PROVIDERS:
+        return JsonResponse(
+            {"detail": f"provider must be one of {list(PROVIDERS)}", "code": "bad_provider"},
+            status=400,
+        )
+    try:
+        row = assign_provider(
+            task=str(payload.get("task") or "station_log"),
+            provider=provider,
+            section=payload.get("section") or "",
+        )
+    except PlanningError as exc:
+        return JsonResponse({"detail": exc.message, "code": exc.code}, status=400)
+    return JsonResponse(
+        {
+            "task": row.task,
+            "provider": row.provider,
+            "section": row.section or None,
+            "resolved": resolve_provider(row.section or None),
+        }
+    )

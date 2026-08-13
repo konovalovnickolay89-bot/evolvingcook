@@ -4,7 +4,7 @@ from __future__ import annotations
 from django.contrib import admin, messages
 from django.db import transaction
 
-from assist.models import AssistJob, AssistProposal
+from assist.models import AssistJob, AssistProposal, IntelligenceAssignment
 from assist.services import (
     AssistError,
     accept_assist_proposal,
@@ -104,3 +104,10 @@ class AssistProposalAdmin(admin.ModelAdmin):
                     messages.ERROR,
                 )
         self.message_user(request, f"Rejected {ok}.", messages.SUCCESS)
+
+
+@admin.register(IntelligenceAssignment)
+class IntelligenceAssignmentAdmin(admin.ModelAdmin):
+    list_display = ("task", "provider", "section", "updated_at")
+    list_filter = ("task", "provider")
+    search_fields = ("section",)

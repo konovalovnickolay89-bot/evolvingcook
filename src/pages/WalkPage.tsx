@@ -22,6 +22,27 @@ import {
 } from "@/db";
 import { formatDecimal } from "@/lib/decimal";
 import { EmptyState, LoadingState } from "@/components/AppShell";
+import { WALK_AREA_KEY } from "@/contract";
+
+type WalkAreaHint = { id: number; name: string };
+
+function peekWalkArea(): WalkAreaHint | null {
+  try {
+    const raw = sessionStorage.getItem(WALK_AREA_KEY);
+    if (!raw) return null;
+    const asNum = Number(raw);
+    if (Number.isFinite(asNum) && asNum > 0) {
+      return { id: asNum, name: "" };
+    }
+    const o = JSON.parse(raw) as { id?: number; name?: string };
+    if (o && typeof o.id === "number" && o.id > 0) {
+      return { id: o.id, name: o.name ?? "" };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 
 type Props = {
   onOpenOrders: (poIds: number[]) => void;
@@ -56,10 +77,21 @@ export function WalkPage({ onOpenOrders }: Props) {
   }, []);
 
   const startMut = useMutation({
-    mutationFn: () =>
-      startWalk({ kind: "order", area_id: null, notes: "" }),
+    mutationFn: () => {
+      const hint = peekWalkArea();
+      return startWalk({
+        kind: "order",
+        area_id: hint?.id ?? null,
+        notes: "",
+      });
+    },
     retry: false,
     onSuccess: async (walk) => {
+      try {
+        sessionStorage.removeItem(WALK_AREA_KEY);
+      } catch {
+        /* ignore */
+      }
       await seedWalkLocal(walk);
       setMeta(await getActiveWalkMeta() ?? null);
       setLines(await getLocalWalkLines(walk.id));
@@ -208,6 +240,7 @@ export function WalkPage({ onOpenOrders }: Props) {
   if (booting) return <LoadingState label="Loading walk…" />;
 
   if (!meta) {
+    const hint = peekWalkArea();
     return (
       <div className="stack">
         <div>
@@ -227,8 +260,9 @@ export function WalkPage({ onOpenOrders }: Props) {
           {startMut.isPending ? "Starting…" : "Start walk"}
         </button>
         <p className="page-lead" style={{ fontSize: "var(--fs-label)" }}>
-          Starts full route (all areas). Area-filtered walks when area_id list
-          ships on contract.
+          {hint
+            ? `Starts ${hint.name || "the store/fridge"} from the station log.`
+            : "Starts the full route (all areas). Check on a log row jumps here with that fridge."}
         </p>
       </div>
     );

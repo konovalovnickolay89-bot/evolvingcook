@@ -1752,3 +1752,137 @@
 .board-line--ordering .board-row__badge {
   opacity: 0.55;
 }
+
+/* ─── Choose station ────────────────────────────────────── */
+
+.section-card.is-last {
+  border-color: color-mix(in srgb, var(--blue) 55%, var(--border));
+}
+
+.section-card__purpose {
+  font-size: var(--fs-body);
+  color: var(--comment);
+  line-height: var(--lh-body);
+}
+
+/* ─── Station log ───────────────────────────────────────── */
+
+.station-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding: var(--space-04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.station-log__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-03);
+}
+
+.station-log__title {
+  margin: 0;
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+}
+
+.kind-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-02);
+}
+
+.kind-chip {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-03);
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-highlight);
+  color: var(--fg);
+  font-size: var(--fs-label);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.kind-chip.is-on {
+  border-color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  color: var(--blue);
+}
+
+.station-log__add {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.station-log__add .field {
+  margin-bottom: var(--space-03);
+}
+
+.station-log__add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+}
+
+.station-log__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-03);
+  align-items: start;
+  padding: var(--space-03) 0;
+  border-bottom: 1px solid var(--border);
+  min-height: var(--touch-min);
+}
+
+.log-row:last-child {
+  border-bottom: none;
+}
+
+.log-row--done .log-row__text {
+  text-decoration: line-through;
+  color: var(--comment);
+}
+
+.log-row__text {
+  font-size: var(--fs-body-lg);
+  font-weight: 500;
+}
+
+.log-row__actions {
+  display: flex;
+  gap: var(--space-02);
+  flex-shrink: 0;
+}
+
+.log-row__actions .btn {
+  min-height: var(--touch-min);
+  padding: 0 var(--space-03);
+}
+
+.banquet-scale {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  padding: var(--space-04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.banquet-scale__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-03);
+}

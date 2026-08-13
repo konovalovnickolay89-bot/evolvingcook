@@ -1,9 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import type { LineComponentOut, ProductionLineOut, ProposalOut } from "@/api/types";
-import { acceptProposal, rejectProposal } from "@/api/assist";
-import { BoardRow, type NoteAssistState } from "./BoardRow";
-import { ProposalCard } from "./ProposalCard";
+import { useEffect, useState } from "react";
+import type { LineComponentOut, ProductionLineOut } from "@/api/types";
+import { BoardRow } from "./BoardRow";
 import {
   checkStateFromLine,
   lineBreakdown,
@@ -13,7 +10,6 @@ import {
   replenishNums,
 } from "@/lib/lineDisplay";
 import { formatDecimal } from "@/lib/decimal";
-import { coercePendingProposal } from "@/lib/proposalTarget";
 import { stockDotClass } from "@/lib/boardDepth";
 import type { SectionMode } from "@/contract";
 import type { BoardFace } from "@/pages/BoardPage";
@@ -77,14 +73,10 @@ export function BoardLine({
   onTickComponent,
   onSaveNotes,
 }: Props) {
-  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [noteDraft, setNoteDraft] = useState(line.notes || "");
-  const [assistState, setAssistState] = useState<NoteAssistState>("idle");
-  const [actionBusy, setActionBusy] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [areaOpen, setAreaOpen] = useState<number | null>(null);
-  const pollTimerRef = useRef<number | null>(null);
 
   const ordering = sectionMode === "ordering";
   const mode = normalizeMode(line.mode);
@@ -103,84 +95,14 @@ export function BoardLine({
         ? `${totalComp} items`
         : "");
 
-  const pendingInline = useMemo(
-    () => coercePendingProposal(line.pending_proposal, line.id),
-    [line.pending_proposal, line.id],
-  );
-
-  function clearPoll() {
-    if (pollTimerRef.current != null) {
-      window.clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-  }
-
   useEffect(() => {
     setNoteDraft(line.notes || "");
   }, [line.notes, line.id]);
 
-  useEffect(() => {
-    if (pendingInline) {
-      setAssistState("ready");
-      clearPoll();
-      return;
-    }
-    setAssistState((prev) => (prev === "ready" ? "idle" : prev));
-  }, [pendingInline]);
-
-  useEffect(() => () => clearPoll(), []);
-
   async function saveNoteOnly() {
     if (!onSaveNotes) return;
     setSaveMsg(null);
-    const text = noteDraft.trim();
     await onSaveNotes(line, noteDraft);
-
-    if (!text) {
-      setAssistState("idle");
-      clearPoll();
-      return;
-    }
-
-    setAssistState("parsing");
-    clearPoll();
-    const started = Date.now();
-    const tick = () => {
-      void qc.invalidateQueries({ queryKey: ["board"] });
-      if (Date.now() - started > 25_000) {
-        setAssistState((s) => (s === "parsing" ? "idle" : s));
-        pollTimerRef.current = null;
-        return;
-      }
-      pollTimerRef.current = window.setTimeout(tick, 2000);
-    };
-    pollTimerRef.current = window.setTimeout(tick, 1200);
-  }
-
-  async function onAccept(p: ProposalOut) {
-    setActionBusy(true);
-    try {
-      await acceptProposal(p.id);
-      setAssistState("idle");
-      clearPoll();
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-      await qc.invalidateQueries({ queryKey: ["board"] });
-    } finally {
-      setActionBusy(false);
-    }
-  }
-
-  async function onReject(p: ProposalOut, reason: string) {
-    setActionBusy(true);
-    try {
-      await rejectProposal(p.id, { reason });
-      setAssistState("idle");
-      clearPoll();
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-      await qc.invalidateQueries({ queryKey: ["board"] });
-    } finally {
-      setActionBusy(false);
-    }
   }
 
   const templateNotes = (line.template_notes || "").trim();
@@ -204,7 +126,6 @@ export function BoardLine({
         houseMade={houseMade}
         noteChip={lineNotes || null}
         templateNoteChip={templateNotes || null}
-        noteAssistState={assistState}
         meta={rowMeta}
         /* F2: ordering never shows count UI */
         produce={
@@ -227,19 +148,6 @@ export function BoardLine({
         <div className="board-line__actions">
           {line.supports_lounge ? (
             <span className="covers-chip">covers: lounge</span>
-          ) : null}
-
-          {pendingInline ? (
-            <div className="stack" style={{ gap: "var(--space-02)" }}>
-              <div className="board__section-label">proposal · not accepted</div>
-              <ProposalCard
-                proposal={pendingInline}
-                compact
-                busy={actionBusy}
-                onAccept={onAccept}
-                onReject={onReject}
-              />
-            </div>
           ) : null}
 
           {!ordering && showAs === "check" ? (

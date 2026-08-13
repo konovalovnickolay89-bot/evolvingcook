@@ -3,23 +3,21 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getBoard,
   openSection,
+  patchSectionCovers,
   quickAddLine,
+  scaleProduce,
   setLineNotes,
   tickComponent,
   tickLine,
   untickComponent,
   untickLine,
 } from "@/api/boards";
-import { listProposals, acceptProposal, rejectProposal } from "@/api/assist";
 import { patchSectionSettings } from "@/api/sections";
 import { ApiError } from "@/api/client";
-import type { ProductionLineOut, ProposalOut } from "@/api/types";
+import type { ProductionLineOut } from "@/api/types";
 import { BoardLine } from "@/components/BoardLine";
-import { ProposalCard } from "@/components/ProposalCard";
 import { ModePill, ModePrompt } from "@/components/ModePrompt";
-import { OrderAssistCard } from "@/components/OrderAssistCard";
-import { PrepPlanStrip } from "@/components/PrepPlanStrip";
-import { QtyDraftStrip } from "@/components/QtyDraftStrip";
+import { StationLogPanel } from "@/components/StationLogPanel";
 import { EmptyState, LoadingState } from "@/components/AppShell";
 import {
   defaultQuickAddMode,
@@ -28,13 +26,6 @@ import {
   type SectionMode,
 } from "@/contract";
 import { isEightySix } from "@/lib/lineDisplay";
-import {
-  parseOrderAssist,
-  parsePrepPlan,
-  parseQtyDraft,
-  type QtyDraftItem,
-  type PrepStep,
-} from "@/lib/boardDepth";
 
 export type BoardFace = "mep" | "service";
 
@@ -42,22 +33,31 @@ type Props = {
   serviceDate: string;
   section: string;
   onBack: () => void;
+  onOpenWalk: () => void;
 };
 
-export function BoardPage({ serviceDate, section, onBack }: Props) {
+const BANQUET = new Set(["banqueting", "banquet_buffet"]);
+
+export function BoardPage({
+  serviceDate,
+  section,
+  onBack,
+  onOpenWalk,
+}: Props) {
   const qc = useQueryClient();
   const [face, setFace] = useState<BoardFace>("mep");
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickName, setQuickName] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [propBusy, setPropBusy] = useState<number | null>(null);
   const [modeBusy, setModeBusy] = useState(false);
   const [modeReceipt, setModeReceipt] = useState<string | null>(null);
+  const [coversDraft, setCoversDraft] = useState<string | null>(null);
 
   const key = ["board", serviceDate, section] as const;
   const title =
     SECTION_LABELS[section as SectionId] ?? section.replace(/_/g, " ");
+  const isBanquet = BANQUET.has(section);
 
   const boardQ = useQuery({
     queryKey: key,
@@ -77,48 +77,6 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
       }
     },
     retry: 1,
-    refetchInterval: (q) => {
-      const lines = q.state.data?.lines ?? [];
-      const anyPending = lines.some((l) => l.pending_proposal);
-      const draft = parseQtyDraft(q.state.data?.qty_draft);
-      const prep = parsePrepPlan(q.state.data?.prep_plan);
-      const assistPending =
-        (draft?.items.some((i) => i.status === "pending") ?? false) ||
-        (prep?.steps.some((s) => s.status === "pending") ?? false);
-      return anyPending || assistPending ? 4000 : false;
-    },
-  });
-
-  const draftPropsQ = useQuery({
-    queryKey: ["proposals", "board", section, serviceDate],
-    queryFn: async ({ signal }) => {
-      const all = await listProposals({ status: "pending", limit: 50 }, signal);
-      // Strip: non-line drafts not already on board strips
-      return all.filter((p) => {
-        if (p.parse_error?.trim()) return false;
-        if (p.kind === "parse_note") return false;
-        if (
-          p.kind === "qty_draft" ||
-          p.kind === "morning_qty" ||
-          p.kind === "order_suggest" ||
-          p.kind === "prep_plan" ||
-          p.target === "prep_step" ||
-          p.target === "planned_qty" ||
-          p.target === "order_packs"
-        ) {
-          // Surfaced via board.qty_draft / prep_plan / order_assist
-          return false;
-        }
-        const c = p.context as { section?: string; service_date?: string };
-        if (c.section && c.section === section) return true;
-        if (p.kind === "draft_prep" || p.kind === "prep_line") {
-          return c.section === section || !c.section;
-        }
-        return false;
-      });
-    },
-    retry: false,
-    refetchInterval: 10000,
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
@@ -148,6 +106,33 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     },
     onError: (e) => {
       setActionError(e instanceof Error ? e.message : "Quick-add failed");
+    },
+  });
+
+  const scaleMut = useMutation({
+    mutationFn: () => scaleProduce(serviceDate, section),
+    onSuccess: async () => {
+      setActionError(null);
+      await invalidate();
+    },
+    onError: (e) => {
+      setActionError(e instanceof Error ? e.message : "Scale failed");
+    },
+  });
+
+  const coversMut = useMutation({
+    mutationFn: (covers: number) =>
+      patchSectionCovers(serviceDate, section, {
+        covers,
+        covers_source: "manual",
+      }),
+    onSuccess: async (data) => {
+      qc.setQueryData(key, data);
+      setCoversDraft(null);
+      setActionError(null);
+    },
+    onError: (e) => {
+      setActionError(e instanceof Error ? e.message : "Could not save covers");
     },
   });
 
@@ -187,86 +172,23 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     }
   }
 
-  async function onAccept(p: ProposalOut) {
-    setPropBusy(p.id);
-    try {
-      await acceptProposal(p.id);
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-      await invalidate();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Accept failed");
-    } finally {
-      setPropBusy(null);
-    }
-  }
-
-  async function onReject(p: ProposalOut, reason: string) {
-    setPropBusy(p.id);
-    try {
-      await rejectProposal(p.id, { reason });
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-      await invalidate();
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Reject failed");
-    } finally {
-      setPropBusy(null);
-    }
-  }
-
   async function chooseMode(mode: SectionMode, guided?: boolean) {
     setModeBusy(true);
     setActionError(null);
     try {
       const body =
-        guided === undefined
-          ? { mode }
-          : { mode, guided };
-      const res = await patchSectionSettings(section, body);
+        guided === undefined ? { mode } : { mode, guided };
+      await patchSectionSettings(section, body);
       setModeReceipt(
         mode === "counts"
           ? "Counts — quantities tracked"
           : "Ordering — menu + what to order",
       );
       await invalidate();
-      void res;
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Could not set mode");
     } finally {
       setModeBusy(false);
-    }
-  }
-
-  async function acceptWithOverlay(
-    proposalId: number,
-    overlay?: Record<string, unknown>,
-  ) {
-    setPropBusy(proposalId);
-    setActionError(null);
-    try {
-      await acceptProposal(
-        proposalId,
-        overlay ? { proposal: overlay } : null,
-      );
-      await invalidate();
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Accept failed");
-    } finally {
-      setPropBusy(null);
-    }
-  }
-
-  async function passProposal(proposalId: number) {
-    setPropBusy(proposalId);
-    setActionError(null);
-    try {
-      await rejectProposal(proposalId, { reason: "" });
-      await invalidate();
-      await qc.invalidateQueries({ queryKey: ["proposals"] });
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : "Pass failed");
-    } finally {
-      setPropBusy(null);
     }
   }
 
@@ -285,7 +207,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
     return (
       <div className="stack">
         <button type="button" className="link-back" onClick={onBack}>
-          ← Day home
+          ← Station log
         </button>
         <EmptyState
           title="Board unavailable"
@@ -307,42 +229,32 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
 
   const board = boardQ.data!;
   const empty = lines.length === 0;
-  const draftProps = draftPropsQ.data ?? [];
   const sectionMode =
     board.section_mode === "counts" || board.section_mode === "ordering"
       ? (board.section_mode as SectionMode)
       : null;
-  const modePrompt = Boolean(board.mode_prompt_needed) || sectionMode == null;
+  const modePrompt = Boolean(board.mode_prompt_needed);
   const guided = Boolean(board.guided);
-  const orderAssist =
-    sectionMode === "ordering" ? parseOrderAssist(board.order_assist) : null;
-  const qtyDraft =
-    sectionMode === "counts" ? parseQtyDraft(board.qty_draft) : null;
-  const prepPlan =
-    sectionMode === "counts" && guided
-      ? parsePrepPlan(board.prep_plan)
-      : null;
-
   const serviceCheck =
     face === "service" &&
     (section === "skybar" || section === "a_la_carte");
   const serviceReplenish =
     face === "service" && section === "breakfast_buffet";
+  const coversValue =
+    coversDraft ?? (board.covers != null ? String(board.covers) : "");
 
   return (
     <div className="stack board-page">
       <div className="board-page__top">
         <button type="button" className="link-back" onClick={onBack}>
-          ← Day home
+          ← Station log
         </button>
         <div>
           <h2 className="page-title">
-            {title}{" "}
-            <ModePill mode={sectionMode} guided={guided} />
+            {title} <ModePill mode={sectionMode} guided={guided} />
           </h2>
           <p className="page-lead" style={{ marginBottom: 0 }}>
-            {serviceDate} ·{" "}
-            {face === "mep" ? "MEP (pre-service)" : "Service"}
+            {serviceDate} · {face === "mep" ? "Prep" : "Service"}
             {!board.active ? " · inactive" : ""}
             {serviceCheck ? " · fire-to-order + 86" : ""}
             {serviceReplenish ? " · replenish (pars when set)" : ""}
@@ -357,7 +269,7 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
             className={`face-toggle__btn${face === "mep" ? " is-on" : ""}`}
             onClick={() => setFace("mep")}
           >
-            MEP
+            Prep
           </button>
           <button
             type="button"
@@ -389,6 +301,15 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
             <span className="progress-strip__label">86</span>
           </div>
         )}
+
+        <button
+          type="button"
+          className="btn btn--ghost btn--block"
+          disabled={openMut.isPending}
+          onClick={() => openMut.mutate()}
+        >
+          {openMut.isPending ? "Updating…" : "Update menu"}
+        </button>
       </div>
 
       {actionError ? <p className="field__error">{actionError}</p> : null}
@@ -407,57 +328,69 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
         <p className="mode-receipt">{modeReceipt}</p>
       ) : null}
 
-      {orderAssist ? (
-        <OrderAssistCard
-          card={orderAssist}
-          busy={propBusy === orderAssist.proposal_id}
-          onAccept={() => void acceptWithOverlay(orderAssist.proposal_id)}
-          onPass={() => void passProposal(orderAssist.proposal_id)}
-        />
-      ) : null}
+      <StationLogPanel
+        serviceDate={serviceDate}
+        section={section}
+        compact
+        onOpenWalk={onOpenWalk}
+      />
 
-      {prepPlan ? (
-        <PrepPlanStrip
-          plan={prepPlan}
-          busyId={propBusy}
-          onAccept={(step: PrepStep, overlay) =>
-            void acceptWithOverlay(step.proposal_id, overlay)
-          }
-          onPass={(step) => void passProposal(step.proposal_id)}
-        />
-      ) : null}
-
-      {qtyDraft ? (
-        <QtyDraftStrip
-          draft={qtyDraft}
-          busyId={propBusy}
-          onAccept={(item: QtyDraftItem, overlay) =>
-            void acceptWithOverlay(item.proposal_id, overlay)
-          }
-          onPass={(item) => void passProposal(item.proposal_id)}
-        />
-      ) : null}
-
-      {draftProps.length > 0 ? (
-        <div className="stack" style={{ gap: "var(--space-02)" }}>
-          <div className="board__section-label">proposed — not accepted</div>
-          {draftProps.map((p) => (
-            <ProposalCard
-              key={p.id}
-              proposal={p}
-              compact
-              busy={propBusy === p.id}
-              onAccept={onAccept}
-              onReject={onReject}
+      {isBanquet ? (
+        <div className="banquet-scale">
+          <label className="field">
+            <span className="field__label">Covers</span>
+            <input
+              className="field__input"
+              inputMode="numeric"
+              value={coversValue}
+              onChange={(e) => setCoversDraft(e.target.value)}
+              placeholder="e.g. 120"
             />
-          ))}
+          </label>
+          <div className="banquet-scale__row">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={coversMut.isPending || coversValue.trim() === ""}
+              onClick={() => {
+                const n = Number(coversValue);
+                if (!Number.isFinite(n) || n < 0) {
+                  setActionError("Covers must be a number");
+                  return;
+                }
+                coversMut.mutate(Math.floor(n));
+              }}
+            >
+              {coversMut.isPending ? "Saving…" : "Save covers"}
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={scaleMut.isPending}
+              onClick={() => scaleMut.mutate()}
+            >
+              {scaleMut.isPending ? "Scaling…" : "Scale produce"}
+            </button>
+          </div>
+          {scaleMut.data ? (
+            <p className="board-row__meta">
+              Scaled {scaleMut.data.updated.length} line
+              {scaleMut.data.updated.length === 1 ? "" : "s"}
+              {scaleMut.data.scaling_covers != null
+                ? ` · ${scaleMut.data.scaling_covers} covers`
+                : " · no covers"}
+              {scaleMut.data.skipped_null_path.length
+                ? ` · ${scaleMut.data.skipped_null_path.length} skipped (no yield)`
+                : ""}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       {empty ? (
         <EmptyState
           title="No lines yet"
-          body="Partial catalogue is normal. Quick-add a prep line — faster than the clipboard margin."
+          body="Partial catalogue is normal. Quick-add a prep line — or Update menu to pull templates."
           action={
             !quickOpen ? (
               <button
@@ -476,9 +409,8 @@ export function BoardPage({ serviceDate, section, onBack }: Props) {
             {sectionMode === "ordering"
               ? "Menu"
               : face === "mep"
-                ? "Mise en place"
-                : "Live service"}{" "}
-            · {section}
+                ? "Prep"
+                : "Service"}
           </div>
           {lines.map((line) => (
             <BoardLine

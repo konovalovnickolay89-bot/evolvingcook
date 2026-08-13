@@ -862,10 +862,13 @@ def scale_produce_proposed(service_date: date, section: str) -> dict:
         )
     sec = _section_for_day(day, section)
     covers = _scaling_covers(sec)
-    lines = list(
-        ProductionLine.objects.select_for_update(of=("self",))
+    locked_ids = list(
+        ProductionLine.objects.select_for_update()
         .filter(service_section=sec, mode=ProductionLine.Mode.PRODUCE)
-        .select_related("template")
+        .values_list("pk", flat=True)
+    )
+    lines = list(
+        ProductionLine.objects.filter(pk__in=locked_ids).select_related("template")
     )
     updated = []
     skipped = []

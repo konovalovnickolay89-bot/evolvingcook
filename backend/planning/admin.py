@@ -11,6 +11,7 @@ from planning.models import (
     ServiceDay,
     ServiceOutlet,
     ServiceSection,
+    StationLogLine,
     Wave,
     WaveAllocation,
 )
@@ -191,3 +192,21 @@ class SectionSettingAdmin(admin.ModelAdmin):
     list_filter = ("mode", "guided")
     list_editable = ("mode", "guided")
     readonly_fields = ("decided_at", "updated_at")
+
+
+@admin.register(StationLogLine)
+class StationLogLineAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "kind",
+        "text",
+        "action",
+        "status",
+        "source",
+        "area",
+        "item",
+        "service_section",
+    )
+    list_filter = ("kind", "status", "source", "action")
+    search_fields = ("text",)
+    autocomplete_fields = ("service_section", "area", "item", "line")

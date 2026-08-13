@@ -213,6 +213,15 @@ A2A_SEND_TIMEOUT = int(env("A2A_SEND_TIMEOUT", "60") or "60")
 # Reject non-loopback REMOTE_ADDR on agent-events when True (production default).
 A2A_INTERNAL_LOOPBACK_ONLY = env_bool("A2A_INTERNAL_LOOPBACK_ONLY", True)
 
+# Station-log intelligence (rules always available; hermes/grok assigned in env or DB)
+STATION_LOG_PROVIDER = (env("STATION_LOG_PROVIDER", "rules") or "rules").strip().lower()
+STATION_LOG_CLASSIFY_PROVIDER = (
+    env("STATION_LOG_CLASSIFY_PROVIDER", "rules") or "rules"
+).strip().lower()
+GROK_ASSIST_BASE_URL = env("GROK_ASSIST_BASE_URL", "") or ""
+GROK_ASSIST_TOKEN = env("GROK_ASSIST_TOKEN", "") or ""
+GROK_ASSIST_TIMEOUT = int(env("GROK_ASSIST_TIMEOUT", "30") or "30")
+
 # NOTE→ASSIST v2
 ASSIST_NOTE_MIN_CHARS = int(env("ASSIST_NOTE_MIN_CHARS", "15") or "15")
 ASSIST_NOTE_DEDUPE_SECONDS = int(env("ASSIST_NOTE_DEDUPE_SECONDS", "3600") or "3600")

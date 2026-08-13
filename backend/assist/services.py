@@ -545,6 +545,45 @@ def handle_agent_event(payload: dict) -> dict[str, Any]:
         if not job.task_id:
             job.task_id = task_id
 
+    if kind in (AssistJob.Kind.STATION_LOG, "station_log"):
+        from datetime import date as date_cls
+
+        from assist.providers import apply_agent_station_log_text
+
+        sd_raw = context.get("service_date")
+        section = context.get("section")
+        if not sd_raw or not section:
+            if job is not None:
+                job.status = AssistJob.Status.FAILED
+                job.error = "station_log missing service_date/section"
+                job.save(update_fields=["status", "error", "task_id", "updated_at"])
+            return {
+                "ok": False,
+                "action": "station_log_bad_context",
+                "task_id": task_id,
+            }
+        sd = (
+            sd_raw
+            if hasattr(sd_raw, "isoformat")
+            else date_cls.fromisoformat(str(sd_raw)[:10])
+        )
+        created = apply_agent_station_log_text(
+            service_date=sd,
+            section=str(section),
+            agent_text=agent_text or "",
+        )
+        if job is not None:
+            job.status = AssistJob.Status.SUCCEEDED
+            job.error = ""
+            job.save(update_fields=["status", "error", "task_id", "updated_at"])
+        return {
+            "ok": True,
+            "action": "station_log_applied",
+            "created": len(created),
+            "task_id": task_id,
+            "job_id": job.pk if job else None,
+        }
+
     # D15.1 multi-step payloads (prep_plan steps[] / qty_draft proposals[])
     if not parse_err and isinstance(proposal_body, dict):
         if (kind in (AssistJob.Kind.PREP_PLAN, "prep_plan")) and isinstance(

@@ -24,6 +24,7 @@ from api.inventory import router as inventory_router
 from api.items import router as items_router
 from api.purchasing import router as purchasing_router
 from api.sections import router as sections_router
+from api.station_log import router as station_log_router
 from api.walks import router as walks_router
 
 
@@ -60,6 +61,7 @@ api = NinjaAPI(
 )
 
 api.add_router("/boards", boards_router)
+api.add_router("/boards", station_log_router)
 api.add_router("/sections", sections_router)
 api.add_router("/items", items_router)
 api.add_router("/walks", walks_router)

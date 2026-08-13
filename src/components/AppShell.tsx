@@ -3,7 +3,7 @@ import { VersionBanner } from "./VersionBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { getAccessToken } from "@/lib/tokenStorage";
 
-/** Bottom nav: Boards · Walk · Orders (map). board is nested under Boards. */
+/** Bottom nav: Station · Walk · Orders. board/log nested under Station. */
 export type AppRoute = "login" | "boards" | "board" | "walk" | "orders";
 
 type Props = {
@@ -22,8 +22,7 @@ export function AppShell({
   hideNav,
   onOpenLogin,
 }: Props) {
-  const token = getAccessToken();
-  const tokenHint = token ? `${token.slice(0, 6)}…` : "no token";
+  const signedIn = Boolean(getAccessToken());
 
   return (
     <div className="app-shell">
@@ -44,14 +43,11 @@ export function AppShell({
             title="Sign in / switch account"
             onClick={onOpenLogin}
           >
-            {tokenHint}
+            {signedIn ? "Account" : "Sign in"}
           </button>
         ) : (
-          <span
-            className="session-chip"
-            title="Auth token present in localStorage"
-          >
-            {tokenHint}
+          <span className="session-chip">
+            {signedIn ? "Account" : "Sign in"}
           </span>
         )}
       </header>
@@ -68,7 +64,7 @@ export function AppShell({
             }
             onClick={() => onNavigate("boards")}
           >
-            Boards
+            Station
           </button>
           <button
             type="button"

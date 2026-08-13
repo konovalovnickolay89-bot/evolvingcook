@@ -150,6 +150,9 @@ def run_assist_job(job_id: int) -> str:
         elif job.kind in (AssistJob.Kind.QTY_DRAFT, AssistJob.Kind.MORNING_QTY, "qty_draft", "morning_qty"):
             from planning.d15_depth import build_qty_draft_prompt
             text = build_qty_draft_prompt(ctx)
+        elif job.kind in (AssistJob.Kind.STATION_LOG, "station_log"):
+            from assist.providers import build_station_log_prompt
+            text = build_station_log_prompt(ctx)
         else:
             raise AssistError(f"unsupported kind {job.kind}", code="bad_kind")
 

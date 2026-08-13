@@ -26,6 +26,52 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   canteen: "Canteen",
 };
 
+/** One-line purpose for a station running chef. */
+export const SECTION_PURPOSE: Record<SectionId, string> = {
+  skybar: "Check the menu, 86 a dish, see what to order.",
+  breakfast_buffet: "Replenish against par.",
+  a_la_carte: "Check the menu, 86 a dish, see ingredients / what to order.",
+  banquet_buffet: "Covers in, scale produce, then the prep list.",
+  banqueting: "Covers in, scale produce, then the prep list.",
+  canteen: "Produce list with counts.",
+};
+
+export const LAST_STATION_KEY = "evolvingcook.lastStation";
+export const WALK_AREA_KEY = "evolvingcook.walkAreaId";
+
+export const LOG_KINDS = [
+  "mep",
+  "house_prep",
+  "service",
+  "holding",
+  "leftover",
+  "cook_priority",
+  "expire_soon",
+] as const;
+
+export type LogKind = (typeof LOG_KINDS)[number];
+
+export const LOG_KIND_LABELS: Record<LogKind, string> = {
+  mep: "Mise en place",
+  house_prep: "House prep",
+  service: "Service",
+  holding: "Holding",
+  leftover: "Leftovers",
+  cook_priority: "Priority",
+  expire_soon: "Expire soon",
+};
+
+export const LOG_ACTIONS = ["none", "check", "order", "prep", "hold"] as const;
+export type LogAction = (typeof LOG_ACTIONS)[number];
+
+export const LOG_ACTION_LABELS: Record<LogAction, string> = {
+  none: "Note",
+  check: "Check",
+  order: "Order",
+  prep: "Prep",
+  hold: "Hold",
+};
+
 /** Service-face row mode hint (D7) */
 export const SECTION_SERVICE_MODE: Record<
   SectionId,

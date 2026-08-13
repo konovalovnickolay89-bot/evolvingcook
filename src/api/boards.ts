@@ -12,6 +12,16 @@ import type {
   TickIn,
 } from "./types";
 
+export type ScaleProduceOut = {
+  section: string;
+  service_date: string;
+  scaling_covers: number | null;
+  formula: string;
+  scaling_covers_source: string;
+  updated: { line_id?: number; name?: string }[];
+  skipped_null_path: { line_id?: number; name?: string; reason?: string }[];
+};
+
 export function openDay(
   body: OpenDayIn,
   signal?: AbortSignal,
@@ -132,4 +142,27 @@ export function setItemNotes(
     body,
     signal,
   });
+}
+
+export function patchSectionCovers(
+  serviceDate: string,
+  section: string,
+  body: { covers: number; covers_source?: string },
+  signal?: AbortSignal,
+): Promise<BoardOut> {
+  return apiRequest<BoardOut>(
+    `/boards/days/${encodeURIComponent(serviceDate)}/sections/${encodeURIComponent(section)}/covers`,
+    { method: "PATCH", body, signal },
+  );
+}
+
+export function scaleProduce(
+  serviceDate: string,
+  section: string,
+  signal?: AbortSignal,
+): Promise<ScaleProduceOut> {
+  return apiRequest<ScaleProduceOut>(
+    `/boards/days/${encodeURIComponent(serviceDate)}/sections/${encodeURIComponent(section)}/scale-produce`,
+    { method: "POST", body: {}, signal },
+  );
 }

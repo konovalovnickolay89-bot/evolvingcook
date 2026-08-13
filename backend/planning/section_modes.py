@@ -41,6 +41,7 @@ ORDERING_ALLOWED_KINDS = frozenset(
         "parse_note",
         "menu_completeness",
         "order_suggest",
+        "station_log",
     }
 )
 COUNTS_ALLOWED_KINDS = frozenset(
@@ -51,10 +52,11 @@ COUNTS_ALLOWED_KINDS = frozenset(
         "qty_draft",
         "prep_plan",
         "morning_qty",
+        "station_log",
     }
 )
-# Before chef chooses — only reversible note parse
-UNSET_ALLOWED_KINDS = frozenset({"parse_note"})
+# Before chef chooses — only reversible note parse + station log
+UNSET_ALLOWED_KINDS = frozenset({"parse_note", "station_log"})
 
 # Proposal targets gated by mode
 ORDERING_TARGETS = frozenset({"order_packs", "component_fill", "line", "template", "item"})
@@ -226,8 +228,8 @@ def assert_job_allowed(*, kind: str, section: str | None) -> None:
     """
     kind_s = (kind or "").strip()
     if not section:
-        # no section context — only parse_note
-        if kind_s != "parse_note":
+        # no section context — parse_note or station_log with dates in context
+        if kind_s not in {"parse_note", "station_log"}:
             raise SectionModeError(
                 f"kind {kind_s} requires section context",
                 code="mode_gate",

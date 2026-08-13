@@ -19,6 +19,7 @@ class AssistJob(models.Model):
         ORDER_SUGGEST = "order_suggest", "order_suggest"
         QTY_DRAFT = "qty_draft", "qty_draft"
         MORNING_QTY = "morning_qty", "morning_qty"
+        STATION_LOG = "station_log", "station_log"
 
     class Status(models.TextChoices):
         QUEUED = "queued", "Queued"
@@ -99,3 +100,36 @@ class AssistProposal(models.Model):
 
     def __str__(self) -> str:
         return f"AssistProposal#{self.pk} {self.kind} {self.status}"
+
+
+class IntelligenceAssignment(models.Model):
+    """
+    Programmatic provider assignment. No chef-facing picker.
+    section null = default for the task. Per-section row overrides.
+    """
+
+    class Task(models.TextChoices):
+        STATION_LOG = "station_log", "station_log"
+
+    class Provider(models.TextChoices):
+        RULES = "rules", "rules"
+        HERMES = "hermes", "hermes"
+        GROK = "grok", "grok"
+
+    task = models.CharField(max_length=32, choices=Task.choices, db_index=True)
+    provider = models.CharField(max_length=32, choices=Provider.choices)
+    section = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "section"],
+                name="uniq_intelligenceassignment_task_section",
+            ),
+        ]
+        ordering = ["task", "section"]
+
+    def __str__(self) -> str:
+        sec = self.section or "*"
+        return f"{self.task}@{sec}={self.provider}"

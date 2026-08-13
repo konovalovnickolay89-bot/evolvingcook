@@ -554,3 +554,108 @@ class SectionSetting(models.Model):
 
     def __str__(self) -> str:
         return f"{self.section} mode={self.mode or 'unset'} guided={self.guided}"
+
+
+class StationLogLine(models.Model):
+    """
+    Running-chef station log for one ServiceSection (one station, one day).
+    Intelligence may insert source=suggest / status=open only — never catalogue.
+    """
+
+    class Kind(models.TextChoices):
+        MEP = "mep", "Mise en place"
+        HOUSE_PREP = "house_prep", "House prep"
+        SERVICE = "service", "Service"
+        HOLDING = "holding", "Holding and storage"
+        LEFTOVER = "leftover", "Leftovers"
+        COOK_PRIORITY = "cook_priority", "Cooking priority"
+        EXPIRE_SOON = "expire_soon", "Expire soon"
+
+    class Action(models.TextChoices):
+        CHECK = "check", "Check"
+        ORDER = "order", "Order"
+        PREP = "prep", "Prep"
+        HOLD = "hold", "Hold"
+        NONE = "none", "None"
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        DONE = "done", "Done"
+
+    class Source(models.TextChoices):
+        CHEF = "chef", "Chef"
+        SUGGEST = "suggest", "Suggest"
+        CARRIED = "carried", "Carried"
+
+    service_section = models.ForeignKey(
+        ServiceSection,
+        on_delete=models.CASCADE,
+        related_name="log_lines",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices, db_index=True)
+    text = models.CharField(max_length=500)
+    action = models.CharField(
+        max_length=16,
+        choices=Action.choices,
+        default=Action.NONE,
+    )
+    qty = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    unit = models.CharField(max_length=16, blank=True, default="")
+    area = models.ForeignKey(
+        "catalog.StorageArea",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="station_log_lines",
+    )
+    item = models.ForeignKey(
+        "catalog.Item",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="station_log_lines",
+    )
+    line = models.ForeignKey(
+        ProductionLine,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="station_log_lines",
+    )
+    use_by = models.DateField(null=True, blank=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.OPEN,
+        db_index=True,
+    )
+    source = models.CharField(
+        max_length=16,
+        choices=Source.choices,
+        default=Source.CHEF,
+    )
+    carried_from = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="carried_to",
+    )
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    done_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["kind", "status", "id"]
+        indexes = [
+            models.Index(fields=["service_section", "status"]),
+            models.Index(fields=["service_section", "kind"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"log#{self.pk} {self.kind} {self.status}"
