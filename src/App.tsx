@@ -9,6 +9,7 @@ import { OrdersPage } from "@/pages/OrdersPage";
 import { DeliveryPage } from "@/pages/DeliveryPage";
 import { InboxPage } from "@/pages/InboxPage";
 import { clearAccessToken, isTokenPresent } from "@/lib/tokenStorage";
+import { readStationContext, rememberStation } from "@/lib/stationContext";
 import { ensureDbOpen } from "@/db";
 
 type StationTarget = { serviceDate: string; section: string } | null;
@@ -116,7 +117,9 @@ export function App() {
       }
       setAuthed(true);
       setRoute(r);
-      setStation(stationFromRoute(r));
+      const target = stationFromRoute(r);
+      setStation(target);
+      if (target) rememberStation(target.serviceDate, target.section);
       if (r === "orders") setPoIds(poIdsFromHash());
       if (r === "delivery") setDeliveryId(deliveryIdFromHash());
     };
@@ -155,16 +158,41 @@ export function App() {
   }, []);
 
   const openStationLog = useCallback((serviceDate: string, section: string) => {
+    rememberStation(serviceDate, section);
     window.location.hash = `#/station/${serviceDate}/${section}/log`;
     setStation({ serviceDate, section });
     setRoute("station-log");
   }, []);
 
   const openBoard = useCallback((serviceDate: string, section: string) => {
+    rememberStation(serviceDate, section);
     window.location.hash = `#/board/${serviceDate}/${section}`;
     setStation({ serviceDate, section });
     setRoute("board");
   }, []);
+
+  /**
+   * Bottom-nav only. "Station" returns to the station you were on (board,
+   * with your last face) when tapped from Walk / Orders / elsewhere; tapped
+   * again on a station surface it opens the picker to switch station.
+   */
+  const navFromShell = useCallback(
+    (r: AppRoute) => {
+      if (r === "boards") {
+        const onStationSurface =
+          route === "boards" || route === "board" || route === "station-log";
+        if (!onStationSurface) {
+          const ctx = readStationContext();
+          if (ctx) {
+            openBoard(ctx.serviceDate, ctx.section);
+            return;
+          }
+        }
+      }
+      navigate(r);
+    },
+    [route, navigate, openBoard],
+  );
 
   const openWalk = useCallback(() => {
     window.location.hash = "#/walk";
@@ -228,6 +256,7 @@ export function App() {
   } else if (route === "station-log" && station) {
     body = (
       <StationLogPage
+        key={`${station.serviceDate}:${station.section}`}
         serviceDate={station.serviceDate}
         section={station.section}
         onBack={() => navigate("boards")}
@@ -238,6 +267,7 @@ export function App() {
   } else if (route === "board" && station) {
     body = (
       <BoardPage
+        key={`${station.serviceDate}:${station.section}`}
         serviceDate={station.serviceDate}
         section={station.section}
         onBack={() => openStationLog(station.serviceDate, station.section)}
@@ -245,7 +275,9 @@ export function App() {
       />
     );
   } else {
-    body = <BoardsPage onOpenStation={openStationLog} />;
+    body = (
+      <BoardsPage onOpenStation={openStationLog} onResumeBoard={openBoard} />
+    );
   }
 
   const shellRoute: AppRoute =
@@ -258,7 +290,7 @@ export function App() {
   return (
     <AppShell
       route={shellRoute}
-      onNavigate={navigate}
+      onNavigate={navFromShell}
       onOpenLogin={onOpenLogin}
     >
       {body}

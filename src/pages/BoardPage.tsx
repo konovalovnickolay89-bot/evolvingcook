@@ -26,6 +26,7 @@ import {
   type SectionMode,
 } from "@/contract";
 import { isEightySix } from "@/lib/lineDisplay";
+import { readStationContext, rememberFace } from "@/lib/stationContext";
 
 export type BoardFace = "mep" | "service";
 
@@ -45,7 +46,12 @@ export function BoardPage({
   onOpenWalk,
 }: Props) {
   const qc = useQueryClient();
-  const [face, setFace] = useState<BoardFace>("mep");
+  const [face, setFace] = useState<BoardFace>(() => {
+    const ctx = readStationContext();
+    return ctx && ctx.section === section && ctx.serviceDate === serviceDate
+      ? ctx.face
+      : "mep";
+  });
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickName, setQuickName] = useState("");
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -172,6 +178,11 @@ export function BoardPage({
     }
   }
 
+  function pickFace(next: BoardFace) {
+    setFace(next);
+    rememberFace(serviceDate, section, next);
+  }
+
   async function chooseMode(mode: SectionMode, guided?: boolean) {
     setModeBusy(true);
     setActionError(null);
@@ -267,7 +278,7 @@ export function BoardPage({
             role="tab"
             aria-selected={face === "mep"}
             className={`face-toggle__btn${face === "mep" ? " is-on" : ""}`}
-            onClick={() => setFace("mep")}
+            onClick={() => pickFace("mep")}
           >
             Prep
           </button>
@@ -276,7 +287,7 @@ export function BoardPage({
             role="tab"
             aria-selected={face === "service"}
             className={`face-toggle__btn${face === "service" ? " is-on" : ""}`}
-            onClick={() => setFace("service")}
+            onClick={() => pickFace("service")}
           >
             Service
           </button>

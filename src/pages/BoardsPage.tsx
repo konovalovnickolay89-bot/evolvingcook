@@ -10,10 +10,13 @@ import {
   type SectionId,
 } from "@/contract";
 import { todayServiceDate, yesterdayServiceDate } from "@/lib/dates";
+import { readStationContext } from "@/lib/stationContext";
 import { EmptyState, LoadingState } from "@/components/AppShell";
 
 type Props = {
   onOpenStation: (serviceDate: string, section: string) => void;
+  /** Resume card: straight back to the board, skipping the log screen. */
+  onResumeBoard: (serviceDate: string, section: string) => void;
 };
 
 type DayPick = "today" | "yesterday";
@@ -30,8 +33,11 @@ function readLastStation(): SectionId | null {
   return null;
 }
 
-export function BoardsPage({ onOpenStation }: Props) {
-  const [pick, setPick] = useState<DayPick>("today");
+export function BoardsPage({ onOpenStation, onResumeBoard }: Props) {
+  const resume = useMemo(() => readStationContext(), []);
+  const [pick, setPick] = useState<DayPick>(() =>
+    resume?.serviceDate === yesterdayServiceDate() ? "yesterday" : "today",
+  );
   const serviceDate =
     pick === "today" ? todayServiceDate() : yesterdayServiceDate();
   const qc = useQueryClient();
@@ -78,6 +84,24 @@ export function BoardsPage({ onOpenStation }: Props) {
           log, then the board.
         </p>
       </div>
+
+      {resume ? (
+        <button
+          type="button"
+          className="resume-card"
+          onClick={() => onResumeBoard(resume.serviceDate, resume.section)}
+        >
+          <span className="resume-card__kicker">Carry on</span>
+          <span className="resume-card__title">
+            {SECTION_LABELS[resume.section]} ·{" "}
+            {resume.serviceDate === todayServiceDate() ? "Today" : "Yesterday"}
+          </span>
+          <span className="resume-card__sub">
+            Straight back to the {resume.face === "service" ? "service" : "prep"}{" "}
+            board — or pick a station below.
+          </span>
+        </button>
+      ) : null}
 
       <div className="face-toggle" role="tablist" aria-label="Service day">
         <button

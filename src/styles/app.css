@@ -1755,6 +1755,43 @@
 
 /* ─── Choose station ────────────────────────────────────── */
 
+.resume-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+  width: 100%;
+  padding: var(--space-04);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--blue) 55%, var(--border));
+  background: color-mix(in srgb, var(--blue) 8%, var(--bg));
+  text-align: left;
+  min-height: var(--touch-min);
+}
+
+.resume-card:active {
+  background: color-mix(in srgb, var(--blue) 14%, var(--bg));
+}
+
+.resume-card__kicker {
+  font-size: var(--fs-label);
+  font-weight: 600;
+  color: var(--blue);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.resume-card__title {
+  font-size: var(--fs-body-lg);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.resume-card__sub {
+  font-size: var(--fs-body);
+  color: var(--comment);
+  line-height: var(--lh-body);
+}
+
 .section-card.is-last {
   border-color: color-mix(in srgb, var(--blue) 55%, var(--border));
 }
