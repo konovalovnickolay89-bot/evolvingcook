@@ -1,0 +1,364 @@
+{
+  "contract_expected": "0.1.12",
+  "units": {
+    "django": "active",
+    "qcluster": "active"
+  },
+  "units_active": {
+    "ok": true,
+    "detail": {
+      "django": "active",
+      "qcluster": "active"
+    }
+  },
+  "version_local": {
+    "ok": true,
+    "detail": {
+      "app_version": "0.1.12",
+      "contract_version": "0.1.12",
+      "api": "v1"
+    }
+  },
+  "version_public": {
+    "ok": true,
+    "detail": {
+      "app_version": "0.1.12",
+      "contract_version": "0.1.12",
+      "api": "v1"
+    }
+  },
+  "a2a_agent_card": {
+    "http": "000",
+    "live": false,
+    "stderr": "curl: (7) Failed to connect to 127.0.0.1 port 9900 after 0 ms: Could not connect to server\n"
+  },
+  "a2a_agent_card_or_documented": {
+    "ok": true,
+    "detail": {
+      "http": "000",
+      "live": false,
+      "stderr": "curl: (7) Failed to connect to 127.0.0.1 port 9900 after 0 ms: Could not connect to server\n"
+    }
+  },
+  "blocked_on": [
+    "live Hermes A2A :9900 not up \u2014 synthetic signed push used for gate"
+  ],
+  "webhook_secret_set": {
+    "ok": true,
+    "detail": "len=64"
+  },
+  "signed_push": {
+    "http": 200,
+    "body": {
+      "ok": true,
+      "action": "created",
+      "proposal_id": 5,
+      "task_id": "gate-task-166037b97b2c4203",
+      "parse_error": null
+    },
+    "before": 0,
+    "after": 1,
+    "proposal_id": 5
+  },
+  "signed_round_trip": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "action": "created",
+        "proposal_id": 5,
+        "task_id": "gate-task-166037b97b2c4203",
+        "parse_error": null
+      },
+      "before": 0,
+      "after": 1,
+      "proposal_id": 5
+    }
+  },
+  "replay": {
+    "http": 200,
+    "body": {
+      "ok": true,
+      "action": "refreshed",
+      "proposal_id": 5,
+      "task_id": "gate-task-166037b97b2c4203"
+    },
+    "count": 1
+  },
+  "replay_idempotent": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "action": "refreshed",
+        "proposal_id": 5,
+        "task_id": "gate-task-166037b97b2c4203"
+      },
+      "count": 1
+    }
+  },
+  "bad_signature": {
+    "http": 401,
+    "body": {
+      "detail": "invalid signature",
+      "code": "bad_signature"
+    },
+    "rows": 0
+  },
+  "bad_signature_rejected": {
+    "ok": true,
+    "detail": {
+      "http": 401,
+      "body": {
+        "detail": "invalid signature",
+        "code": "bad_signature"
+      },
+      "rows": 0
+    }
+  },
+  "failed_task": {
+    "http": 200,
+    "body": {
+      "ok": true,
+      "action": "job_failed",
+      "task_id": "gate-fail-728b43f6a6a6",
+      "job_id": 8
+    },
+    "job_status": "failed",
+    "proposals": 0
+  },
+  "failed_task_no_proposal": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "body": {
+        "ok": true,
+        "action": "job_failed",
+        "task_id": "gate-fail-728b43f6a6a6",
+        "job_id": 8
+      },
+      "job_status": "failed",
+      "proposals": 0
+    }
+  },
+  "public_internal": {
+    "http": "401"
+  },
+  "public_internal_blocked": {
+    "ok": true,
+    "detail": {
+      "http": "401"
+    }
+  },
+  "accept": {
+    "http": 200,
+    "status": "accepted",
+    "decided_at": "2026-08-04T09:41:26.504027+00:00",
+    "item_notes": "gate: house aioli unverified",
+    "house_made": true,
+    "components": 1
+  },
+  "accept_domain_writes": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "status": "accepted",
+      "decided_at": "2026-08-04T09:41:26.504027+00:00",
+      "item_notes": "gate: house aioli unverified",
+      "house_made": true,
+      "components": 1
+    }
+  },
+  "accept_idempotent": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "notes_same": true,
+      "comps": 1
+    }
+  },
+  "reject": {
+    "http": 200,
+    "status": "rejected",
+    "reason": "gate reject",
+    "notes_unchanged_from_should_not": true
+  },
+  "reject_no_domain_write": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "status": "rejected",
+      "reason": "gate reject",
+      "notes_unchanged_from_should_not": true
+    }
+  },
+  "b15_cycle": {
+    "raised": true,
+    "msg": "recipe cycle detected: 204\u2192205\u2192204"
+  },
+  "b15_cycle_raises": {
+    "ok": true,
+    "detail": {
+      "raised": true,
+      "msg": "recipe cycle detected: 204\u2192205\u2192204"
+    }
+  },
+  "b15_explode": {
+    "item_id": 51,
+    "rows": 5,
+    "sample": [
+      {
+        "item_id": 102,
+        "name": "Red cabbage",
+        "qty": 2.0,
+        "unit": "ea",
+        "depth": 1,
+        "path": [
+          51,
+          102
+        ],
+        "leaf": true,
+        "parent_id": 51,
+        "notes": "unverified qty"
+      },
+      {
+        "item_id": 103,
+        "name": "White cabbage",
+        "qty": 2.0,
+        "unit": "ea",
+        "depth": 1,
+        "path": [
+          51,
+          103
+        ],
+        "leaf": true,
+        "parent_id": 51,
+        "notes": "unverified qty"
+      },
+      {
+        "item_id": 59,
+        "name": "Carrot",
+        "qty": 2.0,
+        "unit": "ea",
+        "depth": 1,
+        "path": [
+          51,
+          59
+        ],
+        "leaf": true,
+        "parent_id": 51,
+        "notes": "unverified qty"
+      }
+    ],
+    "error": null
+  },
+  "b15_explode_ok": {
+    "ok": true,
+    "detail": {
+      "item_id": 51,
+      "rows": 5,
+      "sample": [
+        {
+          "item_id": 102,
+          "name": "Red cabbage",
+          "qty": 2.0,
+          "unit": "ea",
+          "depth": 1,
+          "path": [
+            51,
+            102
+          ],
+          "leaf": true,
+          "parent_id": 51,
+          "notes": "unverified qty"
+        },
+        {
+          "item_id": 103,
+          "name": "White cabbage",
+          "qty": 2.0,
+          "unit": "ea",
+          "depth": 1,
+          "path": [
+            51,
+            103
+          ],
+          "leaf": true,
+          "parent_id": 51,
+          "notes": "unverified qty"
+        },
+        {
+          "item_id": 59,
+          "name": "Carrot",
+          "qty": 2.0,
+          "unit": "ea",
+          "depth": 1,
+          "path": [
+            51,
+            59
+          ],
+          "leaf": true,
+          "parent_id": 51,
+          "notes": "unverified qty"
+        }
+      ],
+      "error": null
+    }
+  },
+  "b15_api": {
+    "ok": true,
+    "detail": {
+      "http": 200,
+      "keys": [
+        "item_id",
+        "qty",
+        "components"
+      ]
+    }
+  },
+  "skybar_board": {
+    "http": 200
+  },
+  "skybar_board_ok": {
+    "ok": true,
+    "detail": {
+      "http": 200
+    }
+  },
+  "openapi": {
+    "info_version": "0.1.12",
+    "assist_paths": [
+      "/api/v1/assist/explode",
+      "/api/v1/assist/jobs",
+      "/api/v1/assist/jobs/{job_id}",
+      "/api/v1/assist/proposals",
+      "/api/v1/assist/proposals/{proposal_id}",
+      "/api/v1/assist/proposals/{proposal_id}/accept",
+      "/api/v1/assist/proposals/{proposal_id}/reject"
+    ],
+    "internal_paths": []
+  },
+  "openapi_assist": {
+    "ok": true,
+    "detail": {
+      "info_version": "0.1.12",
+      "assist_paths": [
+        "/api/v1/assist/explode",
+        "/api/v1/assist/jobs",
+        "/api/v1/assist/jobs/{job_id}",
+        "/api/v1/assist/proposals",
+        "/api/v1/assist/proposals/{proposal_id}",
+        "/api/v1/assist/proposals/{proposal_id}/accept",
+        "/api/v1/assist/proposals/{proposal_id}/reject"
+      ],
+      "internal_paths": []
+    }
+  },
+  "sig_helper": {
+    "ok": true,
+    "detail": true
+  },
+  "failed": [],
+  "a2a_live_roundtrip": false
+}

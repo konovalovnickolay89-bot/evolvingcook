@@ -1,0 +1,86 @@
+{
+  "version": {
+    "http": 200,
+    "body": {
+      "app_version": "0.1.5",
+      "contract_version": "0.1.5",
+      "api": "v1"
+    }
+  },
+  "open_day": {
+    "http": 200,
+    "sections": [
+      "a_la_carte"
+    ],
+    "status": "open",
+    "line_counts": {
+      "a_la_carte": 22
+    }
+  },
+  "board": {
+    "http": 200,
+    "line_count": 22,
+    "covers": null,
+    "section": "a_la_carte",
+    "check_actual_all_null": true,
+    "sample": [
+      {
+        "id": 1,
+        "name": "BUFFALO CHICKEN WINGS",
+        "mode": "check",
+        "status": "planned",
+        "comps": 3
+      },
+      {
+        "id": 2,
+        "name": "CAESAR SALAD",
+        "mode": "check",
+        "status": "planned",
+        "comps": 8
+      },
+      {
+        "id": 3,
+        "name": "CAJUN SWEET POTATO FRIES",
+        "mode": "check",
+        "status": "planned",
+        "comps": 2
+      }
+    ]
+  },
+  "tick": {
+    "http": 200,
+    "id": 1,
+    "status": "ready",
+    "ticked": true,
+    "actual_qty": null
+  },
+  "quick_add": {
+    "http": 200,
+    "id": 23,
+    "name": "Ad-hoc test garnish",
+    "source": "manual",
+    "item_id": null,
+    "mode": "check"
+  },
+  "board_after": {
+    "http": 200,
+    "line_count": 23,
+    "ticked_count": 1
+  },
+  "openapi": {
+    "info_version": "0.1.5",
+    "board_paths": [
+      "/api/v1/boards/components/{component_id}/tick",
+      "/api/v1/boards/components/{component_id}/untick",
+      "/api/v1/boards/days/open",
+      "/api/v1/boards/days/{service_date}",
+      "/api/v1/boards/days/{service_date}/sections/{section}",
+      "/api/v1/boards/days/{service_date}/sections/{section}/open",
+      "/api/v1/boards/lines/quick-add",
+      "/api/v1/boards/lines/{line_id}/tick",
+      "/api/v1/boards/lines/{line_id}/untick"
+    ],
+    "path_count": 12
+  },
+  "gate": "ok"
+}

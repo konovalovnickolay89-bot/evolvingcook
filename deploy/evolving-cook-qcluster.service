@@ -1,0 +1,25 @@
+[Unit]
+Description=Evolving Cook django-q2 worker (ORM broker, LLM ingest)
+Documentation=file://%h/src/evolving-cook/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/src/evolving-cook
+Environment=HOME=%h
+Environment=PATH=%h/src/evolving-cook/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+EnvironmentFile=-%h/src/evolving-cook/.env
+ExecStart=%h/src/evolving-cook/.venv/bin/python manage.py qcluster
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+
+# No port — ORM broker only (django-q2 Q_CLUSTER orm=default).
+
+[Install]
+WantedBy=default.target
