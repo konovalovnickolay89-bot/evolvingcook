@@ -77,7 +77,12 @@ export function ChatPage({ onBack }: Props) {
       setMessages(withReply);
       writeHistory(withReply);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 503) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+        // Old backend without D16 — not a Mistral problem.
+        setError(
+          "Companion isn't on the kitchen server yet — it arrives with the next backend update.",
+        );
+      } else if (e instanceof ApiError && e.status === 503) {
         setError(
           "Companion offline — it comes back when the kitchen brain is connected.",
         );
