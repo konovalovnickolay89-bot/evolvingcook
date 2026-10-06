@@ -94,6 +94,21 @@ def post_station_log(
     return serialize_log_line(row)
 
 
+# Registered BEFORE /log/{line_id}: ninja path params match any segment,
+# so the param route would otherwise swallow /log/suggest (POST -> 405).
+@router.post(
+    "/days/{service_date}/sections/{section}/log/suggest",
+    response={200: dict, 400: ErrorOut, 404: ErrorOut},
+)
+def post_station_log_suggest(
+    request: HttpRequest, service_date: date, section: str
+):
+    try:
+        return suggest_station_log(service_date, section)
+    except PlanningError as exc:
+        raise _http(exc) from exc
+
+
 @router.patch(
     "/days/{service_date}/sections/{section}/log/{line_id}",
     response={200: dict, 400: ErrorOut, 404: ErrorOut},
@@ -111,16 +126,3 @@ def patch_station_log(
     except PlanningError as exc:
         raise _http(exc) from exc
     return serialize_log_line(row)
-
-
-@router.post(
-    "/days/{service_date}/sections/{section}/log/suggest",
-    response={200: dict, 400: ErrorOut, 404: ErrorOut},
-)
-def post_station_log_suggest(
-    request: HttpRequest, service_date: date, section: str
-):
-    try:
-        return suggest_station_log(service_date, section)
-    except PlanningError as exc:
-        raise _http(exc) from exc
