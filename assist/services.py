@@ -1628,3 +1628,30 @@ def explode_item_as_dict(item_id: int, qty: Any = 1) -> dict[str, Any]:
             for r in rows
         ],
     }
+
+
+# ── Stale-proposal hygiene ─────────────────────────────────
+# A "today only" (line-target) proposal is meaningless after its day has
+# passed; anything pending for a month is noise. Expired rows become
+# rejected with reason "expired" so the Done tab keeps the audit trail.
+
+STALE_LINE_TARGET_DAYS = 3
+STALE_ANY_DAYS = 30
+
+
+def expire_stale_proposals() -> int:
+    """Lazy sweep, called from the list endpoint. Returns rows expired."""
+    now = timezone.now()
+    line_cutoff = now - timedelta(days=STALE_LINE_TARGET_DAYS)
+    any_cutoff = now - timedelta(days=STALE_ANY_DAYS)
+    stale = AssistProposal.objects.filter(
+        status=AssistProposal.Status.PENDING
+    ).filter(
+        Q(created_at__lt=any_cutoff)
+        | (Q(created_at__lt=line_cutoff) & Q(proposal__target="line"))
+    )
+    return stale.update(
+        status=AssistProposal.Status.REJECTED,
+        reject_reason="expired",
+        decided_at=now,
+    )
