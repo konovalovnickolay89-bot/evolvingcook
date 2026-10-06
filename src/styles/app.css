@@ -2118,3 +2118,55 @@
   flex-wrap: wrap;
   gap: var(--space-02) var(--space-03);
 }
+
+/* ─── Section settings (tap the mode pill) ──────────────── */
+
+.mode-pill-btn {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* ─── D17 Recipes ───────────────────────────────────────── */
+
+.recipe-method {
+  margin: 8px 0 0;
+  padding: 0 0 0 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+}
+
+.recipe-method__step {
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.recipe-method__step::marker {
+  color: var(--comment);
+  font-family: var(--font-mono);
+}
+
+.recipe-ing-edit {
+  display: grid;
+  grid-template-columns: 1fr 4.5rem 4rem auto;
+  gap: var(--space-02);
+  margin-bottom: var(--space-02);
+}
+
+.recipe-step-edit {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-02);
+  align-items: start;
+  margin-bottom: var(--space-02);
+}
+
+.recipe-step-edit__n {
+  min-width: 1.5rem;
+  padding-top: var(--space-03);
+  color: var(--comment);
+  text-align: right;
+}

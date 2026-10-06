@@ -2,7 +2,7 @@
  * Contract version this build was generated against.
  * Regenerate src/api/schema.d.ts and bump this when openapi.json moves.
  */
-export const EXPECTED_CONTRACT_VERSION = "0.1.19" as const;
+export const EXPECTED_CONTRACT_VERSION = "0.1.20" as const;
 
 export const API_BASE = "https://api.apidiscoverysolution.uk/api/v1" as const;
 
@@ -147,4 +147,22 @@ export const WALK_AREA_LABELS = [
   "Veg prep",
   "Skybar cellar",
   "Banquet hold",
+] as const;
+
+/** UK FSA 14 allergens — recipe card chips. */
+export const UK14_ALLERGENS = [
+  "celery",
+  "gluten",
+  "crustaceans",
+  "eggs",
+  "fish",
+  "lupin",
+  "milk",
+  "molluscs",
+  "mustard",
+  "nuts",
+  "peanuts",
+  "sesame",
+  "soya",
+  "sulphites",
 ] as const;

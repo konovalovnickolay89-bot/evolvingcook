@@ -434,3 +434,38 @@ class CatalogIngestProposal(models.Model):
 
     def __str__(self) -> str:
         return f"proposal#{self.pk} {self.name} [{self.status}]"
+
+
+class Recipe(models.Model):
+    """
+    D17 — chef's recipe card: production spec + method in one.
+    ingredients: [{name, qty, unit, note}] · method: [step, …] ·
+    allergens: UK-14 names present. Companion drafts, chef owns.
+    """
+
+    class Source(models.TextChoices):
+        CHEF = "chef", "Chef"
+        COMPANION = "companion", "Companion"
+
+    name = models.CharField(max_length=255)
+    section = models.CharField(max_length=32, blank=True, default="")
+    base_covers = models.PositiveIntegerField(null=True, blank=True)
+    yield_qty = models.DecimalField(
+        max_digits=18, decimal_places=6, null=True, blank=True
+    )
+    yield_unit = models.CharField(max_length=32, blank=True, default="")
+    ingredients = models.JSONField(default=list, blank=True)
+    method = models.JSONField(default=list, blank=True)
+    allergens = models.JSONField(default=list, blank=True)
+    notes = models.TextField(blank=True, default="")
+    source = models.CharField(
+        max_length=16, choices=Source.choices, default=Source.CHEF
+    )
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self) -> str:
+        return f"Recipe {self.name}"
