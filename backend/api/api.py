@@ -23,6 +23,7 @@ from api.boards import router as boards_router
 from api.inventory import router as inventory_router
 from api.items import router as items_router
 from api.purchasing import router as purchasing_router
+from api.recipes import router as recipes_router
 from api.sections import router as sections_router
 from api.station_log import router as station_log_router
 from api.walks import router as walks_router
@@ -68,6 +69,7 @@ api.add_router("/walks", walks_router)
 api.add_router("/purchasing", purchasing_router)
 api.add_router("/inventory", inventory_router)
 api.add_router("/assist", assist_router)
+api.add_router("/recipes", recipes_router)
 
 
 class VersionOut(Schema):

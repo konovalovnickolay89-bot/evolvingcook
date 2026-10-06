@@ -247,3 +247,79 @@ def _brief_out(brief: CompanionBrief) -> dict[str, Any]:
         "model": brief.model,
         "tips": list((brief.payload or {}).get("tips", [])),
     }
+
+
+RECIPE_TASK = (
+    "Draft a production recipe card for this kitchen from the chef's request. "
+    "Quantities sized for base_covers when given (else pick a sensible batch "
+    "and say so in notes). Ingredients with qty+unit a commis can weigh out. "
+    "Method MEP-first: longest lead first, clock references only where they "
+    "matter, show arithmetic in the step where you scale or ratio anything. "
+    "allergens: names from the UK 14 list actually present in the recipe. "
+    "Plain chef-speak throughout; no invented house rules."
+)
+
+
+def draft_recipe(prompt: str, covers: int | None = None) -> dict[str, Any]:
+    """Companion-drafted recipe card — returned for the chef to edit, not saved."""
+    text = (prompt or "").strip()[:MAX_CONTENT_CHARS]
+    if not text:
+        raise CompanionError("Say what to draft.", code="bad_request")
+    user_text = json.dumps(
+        {
+            "task": RECIPE_TASK,
+            "request": text,
+            "base_covers": covers,
+            "house_profile": get_profile()["text"] or None,
+            "respond_with": {
+                "name": "string",
+                "base_covers": "integer or null",
+                "yield_qty": "number or null",
+                "yield_unit": "string",
+                "ingredients": [
+                    {"name": "string", "qty": "number or null", "unit": "string", "note": "string"}
+                ],
+                "method": ["step strings in order"],
+                "allergens": ["UK-14 allergen names present"],
+                "notes": "string",
+            },
+        },
+        ensure_ascii=False,
+    )
+    data, model = _call(SYSTEM_PROMPT, user_text)
+
+    def _num(v: Any) -> float | None:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if f == f else None  # NaN guard
+
+    ingredients = [
+        {
+            "name": str(i.get("name", "")).strip(),
+            "qty": _num(i.get("qty")),
+            "unit": str(i.get("unit", "")).strip(),
+            "note": str(i.get("note", "")).strip(),
+        }
+        for i in (data.get("ingredients") or [])
+        if isinstance(i, dict) and str(i.get("name", "")).strip()
+    ]
+    method = [str(s).strip() for s in (data.get("method") or []) if str(s).strip()]
+    if not ingredients or not method:
+        raise CompanionError("Companion returned an incomplete recipe.")
+    bc = data.get("base_covers")
+    return {
+        "name": str(data.get("name", "")).strip() or text[:80],
+        "base_covers": int(bc) if isinstance(bc, (int, float)) and bc and bc > 0 else covers,
+        "yield_qty": _num(data.get("yield_qty")),
+        "yield_unit": str(data.get("yield_unit", "")).strip(),
+        "ingredients": ingredients,
+        "method": method,
+        "allergens": [
+            str(a).strip() for a in (data.get("allergens") or []) if str(a).strip()
+        ],
+        "notes": str(data.get("notes", "")).strip(),
+        "source": "companion",
+        "model": model,
+    }

@@ -71,6 +71,7 @@ export function BoardPage({
   const [modeReceipt, setModeReceipt] = useState<string | null>(null);
   const [coversDraft, setCoversDraft] = useState<string | null>(null);
   const [assistBusyId, setAssistBusyId] = useState<number | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const key = ["board", serviceDate, section] as const;
   const title =
@@ -330,7 +331,20 @@ export function BoardPage({
         </div>
         <div>
           <h2 className="page-title">
-            {title} <ModePill mode={sectionMode} guided={guided} />
+            {title}{" "}
+            <button
+              type="button"
+              className="mode-pill-btn"
+              aria-expanded={settingsOpen}
+              aria-label="Section settings"
+              onClick={() => setSettingsOpen((v) => !v)}
+            >
+              {sectionMode ? (
+                <ModePill mode={sectionMode} guided={guided} />
+              ) : (
+                <span className="mode-pill">mode?</span>
+              )}
+            </button>
           </h2>
           <p className="page-lead" style={{ marginBottom: 0 }}>
             {serviceDate} · {face === "mep" ? "Prep" : "Service"}
@@ -392,6 +406,50 @@ export function BoardPage({
       </div>
 
       {actionError ? <p className="field__error">{actionError}</p> : null}
+
+      {settingsOpen ? (
+        <div className="tune-card" aria-label="Section settings">
+          <h3 className="brief-card__title">Section settings</h3>
+          <p className="board-row__meta">
+            How this board behaves — change it any time.
+          </p>
+          <div className="board-line__checks">
+            <button
+              type="button"
+              className={`chip${sectionMode === "counts" ? " is-on" : ""}`}
+              disabled={modeBusy}
+              onClick={() => void chooseMode("counts", guided)}
+            >
+              Counts
+            </button>
+            <button
+              type="button"
+              className={`chip${sectionMode === "ordering" ? " is-on" : ""}`}
+              disabled={modeBusy}
+              onClick={() => void chooseMode("ordering")}
+            >
+              Ordering
+            </button>
+            {sectionMode === "counts" ? (
+              <button
+                type="button"
+                className={`chip${guided ? " is-on chip--ok" : ""}`}
+                disabled={modeBusy}
+                onClick={() => void chooseMode("counts", !guided)}
+              >
+                {guided ? "Guided prep ✓" : "Guided prep"}
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="link-back"
+            onClick={() => setSettingsOpen(false)}
+          >
+            Close
+          </button>
+        </div>
+      ) : null}
 
       {modePrompt ? (
         <ModePrompt

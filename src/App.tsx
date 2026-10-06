@@ -4,6 +4,8 @@ import { LoginPage } from "@/pages/LoginPage";
 import { BoardsPage } from "@/pages/BoardsPage";
 import { BoardPage } from "@/pages/BoardPage";
 import { ChatPage } from "@/pages/ChatPage";
+import { RecipePage } from "@/pages/RecipePage";
+import { RecipesPage } from "@/pages/RecipesPage";
 import { StationLogPage } from "@/pages/StationLogPage";
 import { WalkPage } from "@/pages/WalkPage";
 import { OrdersPage } from "@/pages/OrdersPage";
@@ -15,7 +17,16 @@ import { ensureDbOpen } from "@/db";
 
 type StationTarget = { serviceDate: string; section: string } | null;
 
-type Route = AppRoute | "delivery" | "inbox" | "station-log";
+type Route = AppRoute | "delivery" | "inbox" | "station-log" | "recipes" | "recipe";
+
+type RecipeRef = "new" | number | null;
+
+function recipeFromHash(): RecipeRef {
+  const h = window.location.hash.replace(/^#\/?/, "");
+  const m = /^recipe\/(new|\d+)$/.exec(h);
+  if (!m) return null;
+  return m[1] === "new" ? "new" : Number(m[1]);
+}
 
 function routeFromHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
@@ -23,6 +34,8 @@ function routeFromHash(): Route {
   if (h === "walk") return "walk";
   if (h === "chat") return "chat";
   if (h === "inbox") return "inbox";
+  if (h === "recipes") return "recipes";
+  if (h.startsWith("recipe/")) return "recipe";
   if (h.startsWith("delivery/")) return "delivery";
   if (h === "orders" || h.startsWith("orders")) return "orders";
   if (h.startsWith("station/")) return "station-log";
@@ -88,6 +101,9 @@ export function App() {
   const [deliveryId, setDeliveryId] = useState<number | null>(() =>
     isTokenPresent() ? deliveryIdFromHash() : null,
   );
+  const [recipeRef, setRecipeRef] = useState<RecipeRef>(() =>
+    isTokenPresent() ? recipeFromHash() : null,
+  );
 
   useEffect(() => {
     void ensureDbOpen();
@@ -133,6 +149,7 @@ export function App() {
       if (target) rememberStation(target.serviceDate, target.section);
       if (r === "orders") setPoIds(poIdsFromHash());
       if (r === "delivery") setDeliveryId(deliveryIdFromHash());
+      if (r === "recipe") setRecipeRef(recipeFromHash());
     };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
@@ -220,6 +237,17 @@ export function App() {
     setRoute("chat");
   }, []);
 
+  const openRecipes = useCallback(() => {
+    window.location.hash = "#/recipes";
+    setRoute("recipes");
+  }, []);
+
+  const openRecipe = useCallback((ref: "new" | number) => {
+    window.location.hash = `#/recipe/${ref}`;
+    setRecipeRef(ref);
+    setRoute("recipe");
+  }, []);
+
   /** Back from inbox/chat: the board you were on, else the picker. */
   const backFromInbox = useCallback(() => {
     const ctx = readStationContext();
@@ -273,6 +301,23 @@ export function App() {
     body = <WalkPage onOpenOrders={openOrders} />;
   } else if (route === "chat") {
     body = <ChatPage onBack={backFromInbox} />;
+  } else if (route === "recipes") {
+    body = (
+      <RecipesPage
+        onBack={backFromInbox}
+        onOpenRecipe={(id) => openRecipe(id)}
+        onNewRecipe={() => openRecipe("new")}
+      />
+    );
+  } else if (route === "recipe") {
+    body = (
+      <RecipePage
+        key={String(recipeRef)}
+        recipeId={recipeRef === "new" || recipeRef == null ? null : recipeRef}
+        onBack={openRecipes}
+        onSaved={(id) => openRecipe(id)}
+      />
+    );
   } else if (route === "inbox") {
     body = <InboxPage onBack={backFromInbox} />;
   } else if (route === "delivery" && deliveryId) {
@@ -315,12 +360,17 @@ export function App() {
         onResumeBoard={openBoard}
         onOpenChat={openChat}
         onOpenInbox={openInbox}
+        onOpenRecipes={openRecipes}
       />
     );
   }
 
   const shellRoute: AppRoute =
-    route === "board" || route === "inbox" || route === "station-log"
+    route === "board" ||
+    route === "inbox" ||
+    route === "station-log" ||
+    route === "recipes" ||
+    route === "recipe"
       ? "boards"
       : route === "delivery"
         ? "orders"

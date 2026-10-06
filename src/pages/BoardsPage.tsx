@@ -22,6 +22,7 @@ type Props = {
   onResumeBoard: (serviceDate: string, section: string) => void;
   onOpenChat: () => void;
   onOpenInbox: () => void;
+  onOpenRecipes: () => void;
 };
 
 type DayPick = "today" | "yesterday";
@@ -43,6 +44,7 @@ export function BoardsPage({
   onResumeBoard,
   onOpenChat,
   onOpenInbox,
+  onOpenRecipes,
 }: Props) {
   const resume = useMemo(() => readStationContext(), []);
   const [pick, setPick] = useState<DayPick>(() =>
@@ -202,13 +204,22 @@ export function BoardsPage({
             connected.
           </p>
         )}
-        <button
-          type="button"
-          className="btn btn--ghost btn--block"
-          onClick={onOpenChat}
-        >
-          Ask the companion
-        </button>
+        <div className="quick-add__row">
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={onOpenChat}
+          >
+            Ask the companion
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={onOpenRecipes}
+          >
+            Recipes
+          </button>
+        </div>
       </div>
 
       <div className="note-capture">

@@ -25,6 +25,7 @@ from assist.services import (
     AssistError,
     accept_assist_proposal,
     enqueue_assist_job,
+    expire_stale_proposals,
     explode_item_as_dict,
     proposal_out_dict,
     reject_assist_proposal,
@@ -136,6 +137,7 @@ def list_proposals(
     kind: str | None = None,
     limit: int = 50,
 ):
+    expire_stale_proposals()  # lazy hygiene: stale "today only" rows → expired
     qs = AssistProposal.objects.all().order_by("-created_at", "-id")
     if status:
         qs = qs.filter(status=status)
