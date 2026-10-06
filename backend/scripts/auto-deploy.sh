@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Pull-and-deploy when the tracked branch moves on GitHub. Cron-safe.
+# Works from both layouts: the monorepo (deploy.sh in backend/scripts/)
+# and the server's standalone backend checkout (deploy.sh in scripts/,
+# tracking the subtree-split branch, e.g. backend-deploy).
 #
 # One-time setup on the server (crontab -e):
-#   */5 * * * * EVOLVINGCOOK_DEPLOY_BRANCH=main /path/to/repo/backend/scripts/auto-deploy.sh >> $HOME/evolvingcook-deploy.log 2>&1
+#   */5 * * * * EVOLVINGCOOK_DEPLOY_BRANCH=backend-deploy <checkout>/scripts/auto-deploy.sh >> $HOME/evolvingcook-deploy.log 2>&1
 #
-# Point EVOLVINGCOOK_DEPLOY_BRANCH at a feature branch to track it instead.
 # Exits quietly when nothing changed. Refuses (loudly) if the server
 # checkout has local commits or edits — it never overwrites server-local
 # work; fix the checkout by hand, then runs resume.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(git -C "$(cd "$(dirname "$0")" && pwd)" rev-parse --show-toplevel)"
 BRANCH="${EVOLVINGCOOK_DEPLOY_BRANCH:-main}"
 LOCK="$ROOT/.auto-deploy.lock"
 
@@ -40,5 +42,9 @@ if ! git merge --ff-only --quiet "origin/$BRANCH"; then
   exit 1
 fi
 
-"$ROOT/backend/scripts/deploy.sh"
+if [[ -x "$ROOT/backend/scripts/deploy.sh" ]]; then
+  "$ROOT/backend/scripts/deploy.sh" # monorepo layout
+else
+  "$ROOT/scripts/deploy.sh" # standalone backend layout
+fi
 echo "$(date -Is) auto-deploy: done at $(git rev-parse --short HEAD)"
