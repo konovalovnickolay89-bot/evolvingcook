@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createAssistJob } from "@/api/assist";
 import { getDay, openDay } from "@/api/boards";
 import { getDailyBrief } from "@/api/companion";
 import { ApiError } from "@/api/client";
+import { useDictation } from "@/lib/useDictation";
 import {
   ALL_SECTIONS,
   LAST_STATION_KEY,
@@ -19,6 +21,7 @@ type Props = {
   /** Resume card: straight back to the board, skipping the log screen. */
   onResumeBoard: (serviceDate: string, section: string) => void;
   onOpenChat: () => void;
+  onOpenInbox: () => void;
 };
 
 type DayPick = "today" | "yesterday";
@@ -35,7 +38,12 @@ function readLastStation(): SectionId | null {
   return null;
 }
 
-export function BoardsPage({ onOpenStation, onResumeBoard, onOpenChat }: Props) {
+export function BoardsPage({
+  onOpenStation,
+  onResumeBoard,
+  onOpenChat,
+  onOpenInbox,
+}: Props) {
   const resume = useMemo(() => readStationContext(), []);
   const [pick, setPick] = useState<DayPick>(() =>
     resume?.serviceDate === yesterdayServiceDate() ? "yesterday" : "today",
@@ -59,6 +67,41 @@ export function BoardsPage({ onOpenStation, onResumeBoard, onOpenChat }: Props) 
     staleTime: 10 * 60_000,
   });
   const [briefBusy, setBriefBusy] = useState(false);
+
+  /* Notes uploader — voice or text, straight into the Assist parse queue. */
+  const [noteText, setNoteText] = useState("");
+  const [noteSection, setNoteSection] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteMsg, setNoteMsg] = useState<string | null>(null);
+  const [noteSent, setNoteSent] = useState(false);
+  const dictation = useDictation((text) =>
+    setNoteText((t) => (t ? `${t} ${text}` : text)),
+  );
+
+  async function sendNote() {
+    const text = noteText.trim();
+    if (!text || noteBusy) return;
+    setNoteBusy(true);
+    setNoteMsg(null);
+    setNoteSent(false);
+    try {
+      await createAssistJob({
+        kind: "parse_note",
+        context: {
+          text,
+          service_date: serviceDate,
+          ...(noteSection ? { section: noteSection } : {}),
+        },
+      });
+      setNoteText("");
+      setNoteSent(true);
+      setNoteMsg("Sent — Assist is reading it. Review it in the inbox.");
+    } catch (e) {
+      setNoteMsg(e instanceof Error ? e.message : "Could not send the note");
+    } finally {
+      setNoteBusy(false);
+    }
+  }
   async function refreshBrief() {
     setBriefBusy(true);
     try {
@@ -166,6 +209,77 @@ export function BoardsPage({ onOpenStation, onResumeBoard, onOpenChat }: Props) 
         >
           Ask the companion
         </button>
+      </div>
+
+      <div className="note-capture">
+        <h3 className="brief-card__title">Quick note</h3>
+        <p className="board-row__meta">
+          Say it or type it — Assist turns it into a proposal to review.
+        </p>
+        <div className="note-capture__row">
+          <input
+            className="field__input"
+            value={noteText}
+            disabled={noteBusy}
+            onChange={(e) => setNoteText(e.target.value)}
+            placeholder={
+              dictation.listening
+                ? "Listening…"
+                : "e.g. 2 trays chicken thighs left, use by Thursday"
+            }
+            enterKeyHint="send"
+            autoComplete="off"
+          />
+          {dictation.supported ? (
+            <button
+              type="button"
+              className={`btn btn--ghost voice-btn${dictation.listening ? " is-listening" : ""}`}
+              aria-pressed={dictation.listening}
+              aria-label={
+                dictation.listening ? "Stop dictating" : "Dictate a note"
+              }
+              onClick={() =>
+                dictation.listening ? dictation.stop() : dictation.start()
+              }
+            >
+              {dictation.listening ? "◼" : "⏺"}
+            </button>
+          ) : null}
+        </div>
+        <div className="note-capture__row">
+          <select
+            className="field__input"
+            value={noteSection}
+            disabled={noteBusy}
+            aria-label="Station for this note"
+            onChange={(e) => setNoteSection(e.target.value)}
+          >
+            <option value="">Whole kitchen</option>
+            {ALL_SECTIONS.map((id) => (
+              <option key={id} value={id}>
+                {SECTION_LABELS[id as SectionId]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={noteBusy || !noteText.trim()}
+            onClick={() => void sendNote()}
+          >
+            {noteBusy ? "Sending…" : "Send"}
+          </button>
+        </div>
+        {noteMsg ? (
+          <div className="note-capture__receipt">
+            <span className="board-row__meta">{noteMsg}</span>
+            {noteSent ? (
+              <button type="button" className="link-back" onClick={onOpenInbox}>
+                Open inbox
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="face-toggle" role="tablist" aria-label="Service day">

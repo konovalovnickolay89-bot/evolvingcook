@@ -2057,3 +2057,64 @@
   padding-top: var(--space-02);
   background: var(--bg-dark);
 }
+
+/* ─── D16 Companion — tuner, voice, quick note ──────────── */
+
+.chat-header-actions {
+  display: flex;
+  gap: var(--space-04);
+}
+
+.tune-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  padding: var(--space-04);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.voice-btn {
+  min-width: var(--touch-min);
+  padding: 0 var(--space-03);
+  font-size: var(--fs-body-lg);
+}
+
+.voice-btn.is-listening {
+  border-color: var(--red);
+  color: var(--red);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--red) 35%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 18%, transparent); }
+}
+
+.chat-compose {
+  grid-template-columns: 1fr auto auto;
+}
+
+.note-capture {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-03);
+  padding: var(--space-04);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.note-capture__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-02);
+}
+
+.note-capture__receipt {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-02) var(--space-03);
+}

@@ -40,3 +40,22 @@ export function getDailyBrief(
     signal,
   });
 }
+
+export type ProfileOut = { text: string; updated_at: string | null };
+
+export function getCompanionProfile(
+  signal?: AbortSignal,
+): Promise<ProfileOut> {
+  return apiRequest<ProfileOut>("/assist/companion-profile", { signal });
+}
+
+export function putCompanionProfile(
+  text: string,
+  signal?: AbortSignal,
+): Promise<ProfileOut> {
+  return apiRequest<ProfileOut>("/assist/companion-profile", {
+    method: "PUT",
+    body: { text },
+    signal,
+  });
+}

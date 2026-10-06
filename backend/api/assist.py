@@ -299,3 +299,22 @@ def companion_daily_brief(
         return 200, companion.daily_brief(sd, refresh=refresh)
     except companion.CompanionError as exc:
         return 503, {"detail": str(exc), "code": exc.code}
+
+
+class ProfileOut(Schema):
+    text: str
+    updated_at: str | None = None
+
+
+class ProfileIn(Schema):
+    text: str
+
+
+@router.get("/companion-profile", response=ProfileOut)
+def get_companion_profile(request: HttpRequest):
+    return 200, companion.get_profile()
+
+
+@router.put("/companion-profile", response=ProfileOut)
+def put_companion_profile(request: HttpRequest, body: ProfileIn):
+    return 200, companion.set_profile(body.text)

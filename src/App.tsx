@@ -314,6 +314,7 @@ export function App() {
         onOpenStation={openStationLog}
         onResumeBoard={openBoard}
         onOpenChat={openChat}
+        onOpenInbox={openInbox}
       />
     );
   }

@@ -36,6 +36,19 @@ Last message must be `user`. Server keeps the last 12 messages, 2000 chars each.
 Cached per date; `refresh=true` regenerates (falls back to the cached brief if
 the provider errors).
 
+### `GET | PUT /assist/companion-profile`
+
+```jsonc
+// out 200 (GET and PUT)
+{ "text": "chef's standing rules…", "updated_at": "…" | null }
+// PUT in
+{ "text": "…" }                      // trimmed, capped 4000 chars
+```
+
+The profile rides into every chat/brief prompt as `house_profile`
+(authoritative unless it conflicts with food safety). Saving it deletes
+today's cached brief so the next dashboard load re-grounds the tips.
+
 ### Errors (both)
 
 `503 llm_unconfigured` — `MISTRAL_API_KEY` unset. `503 llm_error` — provider /

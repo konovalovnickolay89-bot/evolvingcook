@@ -149,3 +149,14 @@ class CompanionBrief(models.Model):
 
     def __str__(self) -> str:
         return f"CompanionBrief {self.service_date}"
+
+
+class CompanionProfile(models.Model):
+    """D16 — the chef's standing rules, carried into every companion prompt."""
+
+    singleton = models.BooleanField(default=True, unique=True)
+    text = models.TextField(blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"CompanionProfile ({len(self.text)} chars)"

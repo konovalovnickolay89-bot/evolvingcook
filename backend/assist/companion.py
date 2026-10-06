@@ -15,13 +15,14 @@ from typing import Any
 from django.conf import settings
 from django.utils import timezone
 
-from assist.models import AssistProposal, CompanionBrief
+from assist.models import AssistProposal, CompanionBrief, CompanionProfile
 from catalog import llm_provider
 from planning.models import ProductionLine, ServiceDay, StationLogLine
 
 MAX_MESSAGES = 12
 MAX_CONTENT_CHARS = 2000
 MAX_LOG_LINES = 10
+MAX_PROFILE_CHARS = 4000
 
 SYSTEM_PROMPT = (
     "You are the kitchen companion inside Evolving Cook, a phone app used by "
@@ -37,8 +38,10 @@ SYSTEM_PROMPT = (
     "teaches as well as tells. Flag food-safety risks plainly (HACCP: temps, "
     "use-by, allergens) but never invent house rules. You are advice only: you cannot "
     "change boards, orders or logs, so point at the action the chef should take "
-    "in the app instead of claiming you did it. Keep replies under 180 words "
-    "unless asked for a full recipe or plan."
+    "in the app instead of claiming you did it. A house_profile field may "
+    "carry the chef's standing rules and preferences: treat them as "
+    "authoritative for this kitchen unless they conflict with food safety. "
+    "Keep replies under 180 words unless asked for a full recipe or plan."
 )
 
 BRIEF_PROMPT = (
@@ -58,6 +61,29 @@ class CompanionError(RuntimeError):
 
 def llm_ready() -> bool:
     return llm_provider.api_key_present()
+
+
+def get_profile() -> dict[str, Any]:
+    row = CompanionProfile.objects.first()
+    return {
+        "text": row.text if row else "",
+        "updated_at": (
+            timezone.localtime(row.updated_at).isoformat() if row else None
+        ),
+    }
+
+
+def set_profile(text: str) -> dict[str, Any]:
+    """Save the house profile; today's cached brief re-grounds on next load."""
+    clean = (text or "").strip()[:MAX_PROFILE_CHARS]
+    row, created = CompanionProfile.objects.get_or_create(
+        singleton=True, defaults={"text": clean}
+    )
+    if not created and row.text != clean:
+        row.text = clean
+        row.save(update_fields=["text", "updated_at"])
+    CompanionBrief.objects.filter(service_date=timezone.localdate()).delete()
+    return get_profile()
 
 
 def get_companion_model() -> str:
@@ -166,6 +192,7 @@ def companion_chat(
     user_text = json.dumps(
         {
             "day_snapshot": build_day_context(service_date),
+            "house_profile": get_profile()["text"] or None,
             "conversation": trimmed,
             "respond_with": {"reply": "string — your answer to the last message"},
         },
@@ -187,6 +214,7 @@ def daily_brief(service_date: date, refresh: bool = False) -> dict[str, Any]:
     user_text = json.dumps(
         {
             "day_snapshot": build_day_context(service_date),
+            "house_profile": get_profile()["text"] or None,
             "task": BRIEF_PROMPT,
             "respond_with": {"tips": [{"title": "string", "body": "string"}]},
         },
