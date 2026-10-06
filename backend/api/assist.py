@@ -9,14 +9,17 @@ empty text → 400; accept_able flag on proposals.
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
 from django.http import HttpRequest
+from django.utils import timezone
 from ninja import Router, Schema
 
 from api.auth import BearerAuth
 from api.types import DecimalQty
+from assist import companion
 from assist.models import AssistJob, AssistProposal
 from assist.services import (
     AssistError,
@@ -236,3 +239,63 @@ def explode(request: HttpRequest, body: ExplodeIn):
     except AssistError as exc:
         code = 404 if exc.code == "item_not_found" else 400
         return code, {"detail": str(exc), "code": exc.code}
+
+
+# ── D16 — kitchen companion (chat + daily brief) ──────────────────
+
+
+class ChatMessageIn(Schema):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class ChatIn(Schema):
+    messages: list[ChatMessageIn]
+    service_date: date | None = None
+
+
+class ChatOut(Schema):
+    reply: str
+    model: str
+
+
+class BriefTipOut(Schema):
+    title: str = ""
+    body: str
+
+
+class BriefOut(Schema):
+    service_date: str
+    generated_at: str
+    model: str
+    tips: list[BriefTipOut]
+
+
+@router.post(
+    "/chat",
+    response={200: ChatOut, 400: ErrorOut, 503: ErrorOut},
+)
+def companion_chat(request: HttpRequest, body: ChatIn):
+    sd = body.service_date or timezone.localdate()
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages]
+    try:
+        return 200, companion.companion_chat(msgs, sd)
+    except companion.CompanionError as exc:
+        status = 400 if exc.code == "bad_request" else 503
+        return status, {"detail": str(exc), "code": exc.code}
+
+
+@router.get(
+    "/daily-brief",
+    response={200: BriefOut, 503: ErrorOut},
+)
+def companion_daily_brief(
+    request: HttpRequest,
+    service_date: date | None = None,
+    refresh: bool = False,
+):
+    sd = service_date or timezone.localdate()
+    try:
+        return 200, companion.daily_brief(sd, refresh=refresh)
+    except companion.CompanionError as exc:
+        return 503, {"detail": str(exc), "code": exc.code}

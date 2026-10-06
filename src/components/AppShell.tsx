@@ -3,8 +3,8 @@ import { VersionBanner } from "./VersionBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { getAccessToken } from "@/lib/tokenStorage";
 
-/** Bottom nav: Station · Walk · Orders. board/log nested under Station. */
-export type AppRoute = "login" | "boards" | "board" | "walk" | "orders";
+/** Bottom nav: Station · Walk · Orders · Chat. board/log nested under Station. */
+export type AppRoute = "login" | "boards" | "board" | "walk" | "orders" | "chat";
 
 type Props = {
   route: AppRoute;
@@ -81,6 +81,14 @@ export function AppShell({
             onClick={() => onNavigate("orders")}
           >
             Orders
+          </button>
+          <button
+            type="button"
+            className="app-nav__btn"
+            aria-current={route === "chat" ? "page" : undefined}
+            onClick={() => onNavigate("chat")}
+          >
+            Chat
           </button>
         </nav>
       )}

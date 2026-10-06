@@ -3,6 +3,7 @@ import { AppShell, type AppRoute } from "@/components/AppShell";
 import { LoginPage } from "@/pages/LoginPage";
 import { BoardsPage } from "@/pages/BoardsPage";
 import { BoardPage } from "@/pages/BoardPage";
+import { ChatPage } from "@/pages/ChatPage";
 import { StationLogPage } from "@/pages/StationLogPage";
 import { WalkPage } from "@/pages/WalkPage";
 import { OrdersPage } from "@/pages/OrdersPage";
@@ -20,6 +21,7 @@ function routeFromHash(): Route {
   const h = window.location.hash.replace(/^#\/?/, "");
   if (h === "login") return "login";
   if (h === "walk") return "walk";
+  if (h === "chat") return "chat";
   if (h === "inbox") return "inbox";
   if (h.startsWith("delivery/")) return "delivery";
   if (h === "orders" || h.startsWith("orders")) return "orders";
@@ -213,7 +215,12 @@ export function App() {
     setRoute("inbox");
   }, []);
 
-  /** Inbox back: return to the board you were on, else the picker. */
+  const openChat = useCallback(() => {
+    window.location.hash = "#/chat";
+    setRoute("chat");
+  }, []);
+
+  /** Back from inbox/chat: the board you were on, else the picker. */
   const backFromInbox = useCallback(() => {
     const ctx = readStationContext();
     if (ctx) {
@@ -264,6 +271,8 @@ export function App() {
   let body: ReactNode;
   if (route === "walk") {
     body = <WalkPage onOpenOrders={openOrders} />;
+  } else if (route === "chat") {
+    body = <ChatPage onBack={backFromInbox} />;
   } else if (route === "inbox") {
     body = <InboxPage onBack={backFromInbox} />;
   } else if (route === "delivery" && deliveryId) {
@@ -301,7 +310,11 @@ export function App() {
     );
   } else {
     body = (
-      <BoardsPage onOpenStation={openStationLog} onResumeBoard={openBoard} />
+      <BoardsPage
+        onOpenStation={openStationLog}
+        onResumeBoard={openBoard}
+        onOpenChat={openChat}
+      />
     );
   }
 

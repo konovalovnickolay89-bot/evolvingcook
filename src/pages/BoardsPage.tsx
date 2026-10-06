@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getDay, openDay } from "@/api/boards";
+import { getDailyBrief } from "@/api/companion";
 import { ApiError } from "@/api/client";
 import {
   ALL_SECTIONS,
@@ -17,6 +18,7 @@ type Props = {
   onOpenStation: (serviceDate: string, section: string) => void;
   /** Resume card: straight back to the board, skipping the log screen. */
   onResumeBoard: (serviceDate: string, section: string) => void;
+  onOpenChat: () => void;
 };
 
 type DayPick = "today" | "yesterday";
@@ -33,7 +35,7 @@ function readLastStation(): SectionId | null {
   return null;
 }
 
-export function BoardsPage({ onOpenStation, onResumeBoard }: Props) {
+export function BoardsPage({ onOpenStation, onResumeBoard, onOpenChat }: Props) {
   const resume = useMemo(() => readStationContext(), []);
   const [pick, setPick] = useState<DayPick>(() =>
     resume?.serviceDate === yesterdayServiceDate() ? "yesterday" : "today",
@@ -48,6 +50,26 @@ export function BoardsPage({ onOpenStation, onResumeBoard }: Props) {
     queryFn: ({ signal }) => getDay(serviceDate, signal),
     retry: false,
   });
+
+  /* D16 daily brief — cached server-side per date; quiet when offline. */
+  const briefQ = useQuery({
+    queryKey: ["daily-brief", serviceDate],
+    queryFn: ({ signal }) => getDailyBrief(serviceDate, false, signal),
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+  const [briefBusy, setBriefBusy] = useState(false);
+  async function refreshBrief() {
+    setBriefBusy(true);
+    try {
+      const fresh = await getDailyBrief(serviceDate, true);
+      qc.setQueryData(["daily-brief", serviceDate], fresh);
+    } catch {
+      /* keep what we have; the card stays */
+    } finally {
+      setBriefBusy(false);
+    }
+  }
 
   const openMut = useMutation({
     mutationFn: () =>
@@ -102,6 +124,49 @@ export function BoardsPage({ onOpenStation, onResumeBoard }: Props) {
           </span>
         </button>
       ) : null}
+
+      <div className="brief-card">
+        <div className="brief-card__head">
+          <span className="order-assist__badge" aria-hidden>
+            ✦
+          </span>
+          <h3 className="brief-card__title">Today's brief</h3>
+          <button
+            type="button"
+            className="link-back brief-card__refresh"
+            disabled={briefBusy}
+            onClick={() => void refreshBrief()}
+          >
+            {briefBusy ? "…" : "Refresh"}
+          </button>
+        </div>
+        {briefQ.data?.tips?.length ? (
+          <ul className="brief-card__tips">
+            {briefQ.data.tips.map((t, i) => (
+              <li key={`${i}-${t.title}`} className="brief-card__tip">
+                {t.title ? (
+                  <span className="brief-card__tip-title">{t.title}</span>
+                ) : null}
+                <span className="brief-card__tip-body">{t.body}</span>
+              </li>
+            ))}
+          </ul>
+        ) : briefQ.isLoading || briefBusy ? (
+          <p className="board-row__meta">Reading the day…</p>
+        ) : (
+          <p className="board-row__meta">
+            Companion offline — tips come back when the kitchen brain is
+            connected.
+          </p>
+        )}
+        <button
+          type="button"
+          className="btn btn--ghost btn--block"
+          onClick={onOpenChat}
+        >
+          Ask the companion
+        </button>
+      </div>
 
       <div className="face-toggle" role="tablist" aria-label="Service day">
         <button

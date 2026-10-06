@@ -133,3 +133,19 @@ class IntelligenceAssignment(models.Model):
     def __str__(self) -> str:
         sec = self.section or "*"
         return f"{self.task}@{sec}={self.provider}"
+
+
+class CompanionBrief(models.Model):
+    """D16 — cached companion daily brief; one row per service date."""
+
+    service_date = models.DateField(unique=True, db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    model = models.CharField(max_length=128, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-service_date"]
+
+    def __str__(self) -> str:
+        return f"CompanionBrief {self.service_date}"
