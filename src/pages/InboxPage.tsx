@@ -111,7 +111,7 @@ export function InboxPage({ onBack }: Props) {
   return (
     <div className="stack">
       <button type="button" className="link-back" onClick={onBack}>
-        ← Day home
+        ← Back
       </button>
       <div>
         <h2 className="page-title">Proposals</h2>

@@ -91,6 +91,15 @@ export function App() {
     void ensureDbOpen();
   }, []);
 
+  /* Cold start on a station URL (PWA relaunch, deep link) still counts as
+     being there — record it so resume targets work. */
+  useEffect(() => {
+    const target = stationFromRoute(routeFromHash());
+    if (isTokenPresent() && target) {
+      rememberStation(target.serviceDate, target.section);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isTokenPresent()) {
       setAuthed(false);
@@ -199,6 +208,21 @@ export function App() {
     setRoute("walk");
   }, []);
 
+  const openInbox = useCallback(() => {
+    window.location.hash = "#/inbox";
+    setRoute("inbox");
+  }, []);
+
+  /** Inbox back: return to the board you were on, else the picker. */
+  const backFromInbox = useCallback(() => {
+    const ctx = readStationContext();
+    if (ctx) {
+      openBoard(ctx.serviceDate, ctx.section);
+      return;
+    }
+    navigate("boards");
+  }, [openBoard, navigate]);
+
   const openOrders = useCallback((ids: number[]) => {
     setPoIds(ids);
     window.location.hash = `#/orders/${ids.join(",")}`;
@@ -241,7 +265,7 @@ export function App() {
   if (route === "walk") {
     body = <WalkPage onOpenOrders={openOrders} />;
   } else if (route === "inbox") {
-    body = <InboxPage onBack={() => navigate("boards")} />;
+    body = <InboxPage onBack={backFromInbox} />;
   } else if (route === "delivery" && deliveryId) {
     body = (
       <DeliveryPage
@@ -272,6 +296,7 @@ export function App() {
         section={station.section}
         onBack={() => openStationLog(station.serviceDate, station.section)}
         onOpenWalk={openWalk}
+        onOpenInbox={openInbox}
       />
     );
   } else {

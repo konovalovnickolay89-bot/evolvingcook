@@ -13,12 +13,21 @@ import {
   untickLine,
 } from "@/api/boards";
 import { patchSectionSettings } from "@/api/sections";
+import { acceptProposal, listProposals, rejectProposal } from "@/api/assist";
 import { ApiError } from "@/api/client";
-import type { ProductionLineOut } from "@/api/types";
+import type { AcceptIn, ProductionLineOut } from "@/api/types";
 import { BoardLine } from "@/components/BoardLine";
 import { ModePill, ModePrompt } from "@/components/ModePrompt";
+import { OrderAssistCard } from "@/components/OrderAssistCard";
+import { PrepPlanStrip } from "@/components/PrepPlanStrip";
+import { QtyDraftStrip } from "@/components/QtyDraftStrip";
 import { StationLogPanel } from "@/components/StationLogPanel";
 import { EmptyState, LoadingState } from "@/components/AppShell";
+import {
+  parseOrderAssist,
+  parsePrepPlan,
+  parseQtyDraft,
+} from "@/lib/boardDepth";
 import {
   defaultQuickAddMode,
   SECTION_LABELS,
@@ -35,6 +44,7 @@ type Props = {
   section: string;
   onBack: () => void;
   onOpenWalk: () => void;
+  onOpenInbox: () => void;
 };
 
 const BANQUET = new Set(["banqueting", "banquet_buffet"]);
@@ -44,6 +54,7 @@ export function BoardPage({
   section,
   onBack,
   onOpenWalk,
+  onOpenInbox,
 }: Props) {
   const qc = useQueryClient();
   const [face, setFace] = useState<BoardFace>(() => {
@@ -59,6 +70,7 @@ export function BoardPage({
   const [modeBusy, setModeBusy] = useState(false);
   const [modeReceipt, setModeReceipt] = useState<string | null>(null);
   const [coversDraft, setCoversDraft] = useState<string | null>(null);
+  const [assistBusyId, setAssistBusyId] = useState<number | null>(null);
 
   const key = ["board", serviceDate, section] as const;
   const title =
@@ -86,6 +98,41 @@ export function BoardPage({
   });
 
   const invalidate = () => qc.invalidateQueries({ queryKey: key });
+
+  /* Door to the review queue — pending count for the badge. */
+  const inboxQ = useQuery({
+    queryKey: ["proposals", "badge"],
+    queryFn: ({ signal }) =>
+      listProposals({ status: "pending", limit: 50 }, signal),
+    retry: false,
+    refetchInterval: 30_000,
+  });
+  const inboxCount = inboxQ.data?.length ?? 0;
+
+  /* Accept/Pass for board-mounted assist surfaces (order card, qty draft,
+     prep plan). Overlay = AcceptIn partial per FE-SECTION-MODES. */
+  async function decideAssist(
+    proposalId: number,
+    decision: "accept" | "pass",
+    overlay?: Record<string, unknown>,
+  ) {
+    setActionError(null);
+    setAssistBusyId(proposalId);
+    try {
+      if (decision === "accept") {
+        const body: AcceptIn | null = overlay ? { proposal: overlay } : null;
+        await acceptProposal(proposalId, body);
+      } else {
+        await rejectProposal(proposalId, { reason: "" });
+      }
+      await invalidate();
+      await qc.invalidateQueries({ queryKey: ["proposals"] });
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Assist action failed");
+    } finally {
+      setAssistBusyId(null);
+    }
+  }
 
   const openMut = useMutation({
     mutationFn: () =>
@@ -254,12 +301,33 @@ export function BoardPage({
   const coversValue =
     coversDraft ?? (board.covers != null ? String(board.covers) : "");
 
+  /* D15 depth payloads — render only when the backend sent one. */
+  const orderAssist = parseOrderAssist(board.order_assist);
+  const qtyDraft = parseQtyDraft(board.qty_draft);
+  const prepPlan = parsePrepPlan(board.prep_plan);
+
   return (
     <div className="stack board-page">
       <div className="board-page__top">
-        <button type="button" className="link-back" onClick={onBack}>
-          ← Station log
-        </button>
+        <div className="day-home__title-row">
+          <button type="button" className="link-back" onClick={onBack}>
+            ← Station log
+          </button>
+          <button
+            type="button"
+            className="inbox-btn"
+            aria-label={`Assist inbox — ${inboxCount} to review`}
+            title="Assist inbox"
+            onClick={onOpenInbox}
+          >
+            <span className="order-assist__badge" aria-hidden>
+              A
+            </span>
+            {inboxCount > 0 ? (
+              <span className="inbox-btn__count">{inboxCount}</span>
+            ) : null}
+          </button>
+        </div>
         <div>
           <h2 className="page-title">
             {title} <ModePill mode={sectionMode} guided={guided} />
@@ -339,6 +407,15 @@ export function BoardPage({
         <p className="mode-receipt">{modeReceipt}</p>
       ) : null}
 
+      {orderAssist ? (
+        <OrderAssistCard
+          card={orderAssist}
+          busy={assistBusyId === orderAssist.proposal_id}
+          onAccept={() => void decideAssist(orderAssist.proposal_id, "accept")}
+          onPass={() => void decideAssist(orderAssist.proposal_id, "pass")}
+        />
+      ) : null}
+
       <StationLogPanel
         serviceDate={serviceDate}
         section={section}
@@ -396,6 +473,28 @@ export function BoardPage({
             </p>
           ) : null}
         </div>
+      ) : null}
+
+      {qtyDraft ? (
+        <QtyDraftStrip
+          draft={qtyDraft}
+          busyId={assistBusyId}
+          onAccept={(item, overlay) =>
+            void decideAssist(item.proposal_id, "accept", overlay)
+          }
+          onPass={(item) => void decideAssist(item.proposal_id, "pass")}
+        />
+      ) : null}
+
+      {prepPlan ? (
+        <PrepPlanStrip
+          plan={prepPlan}
+          busyId={assistBusyId}
+          onAccept={(step, overlay) =>
+            void decideAssist(step.proposal_id, "accept", overlay)
+          }
+          onPass={(step) => void decideAssist(step.proposal_id, "pass")}
+        />
       ) : null}
 
       {empty ? (

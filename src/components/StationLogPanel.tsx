@@ -140,6 +140,50 @@ export function StationLogPanel({
         </p>
       ) : null}
 
+      {logQ.isError ? (
+        <p className="field__error">
+          {logQ.error instanceof Error
+            ? logQ.error.message
+            : "Could not load log"}
+        </p>
+      ) : null}
+
+      {/* Outstanding work reads first; the compose form lives below it. */}
+      {LOG_KINDS.map((k) => {
+        const rows = byKind[k] ?? [];
+        if (compact && rows.length === 0) return null;
+        if (!compact && k !== kind && rows.filter((r) => r.status === "open").length === 0) {
+          return null;
+        }
+        const visible = compact
+          ? rows
+          : k === kind
+            ? rows
+            : rows.filter((r) => r.status === "open");
+        if (visible.length === 0 && k !== kind) return null;
+        return (
+          <div key={k} className="station-log__group">
+            <div className="board__section-label">{LOG_KIND_LABELS[k]}</div>
+            {visible.length === 0 && k === kind ? (
+              <p className="board-row__meta">Nothing here yet.</p>
+            ) : null}
+            {visible.map((row) => (
+              <LogRow
+                key={row.id}
+                row={row}
+                onDone={() => void setStatus(row, "done")}
+                onReopen={() => void setStatus(row, "open")}
+                onCheckWalk={
+                  row.action === "check" && onOpenWalk
+                    ? () => openWalk(row.area_id, row.area_name)
+                    : undefined
+                }
+              />
+            ))}
+          </div>
+        );
+      })}
+
       <button
         type="button"
         className="btn btn--ghost btn--block"
@@ -234,49 +278,7 @@ export function StationLogPanel({
         </button>
       </form>
 
-      {logQ.isError ? (
-        <p className="field__error">
-          {logQ.error instanceof Error
-            ? logQ.error.message
-            : "Could not load log"}
-        </p>
-      ) : null}
       {error ? <p className="field__error">{error}</p> : null}
-
-      {LOG_KINDS.map((k) => {
-        const rows = byKind[k] ?? [];
-        if (compact && rows.length === 0) return null;
-        if (!compact && k !== kind && rows.filter((r) => r.status === "open").length === 0) {
-          return null;
-        }
-        const visible = compact
-          ? rows
-          : k === kind
-            ? rows
-            : rows.filter((r) => r.status === "open");
-        if (visible.length === 0 && k !== kind) return null;
-        return (
-          <div key={k} className="station-log__group">
-            <div className="board__section-label">{LOG_KIND_LABELS[k]}</div>
-            {visible.length === 0 && k === kind ? (
-              <p className="board-row__meta">Nothing here yet.</p>
-            ) : null}
-            {visible.map((row) => (
-              <LogRow
-                key={row.id}
-                row={row}
-                onDone={() => void setStatus(row, "done")}
-                onReopen={() => void setStatus(row, "open")}
-                onCheckWalk={
-                  row.action === "check" && onOpenWalk
-                    ? () => openWalk(row.area_id, row.area_name)
-                    : undefined
-                }
-              />
-            ))}
-          </div>
-        );
-      })}
     </div>
   );
 }

@@ -127,16 +127,15 @@ export function BoardLine({
         noteChip={lineNotes || null}
         templateNoteChip={templateNotes || null}
         meta={rowMeta}
-        /* F2: ordering never shows count UI */
+        /* F2: ordering never shows count UI — but an 86 must stay visible,
+           so check state always reaches the row (P0, UX eval). */
         produce={
           !ordering && showAs === "produce" ? produceNums(line) : undefined
         }
         replenish={
           !ordering && showAs === "replenish" ? replenishNums(line) : undefined
         }
-        check={
-          !ordering && showAs === "check" ? checkStateFromLine(line) : undefined
-        }
+        check={showAs === "check" ? checkStateFromLine(line) : undefined}
         breakdown={undefined}
         onActivate={() => {
           setNoteDraft(line.notes || "");
@@ -150,7 +149,7 @@ export function BoardLine({
             <span className="covers-chip">covers: lounge</span>
           ) : null}
 
-          {!ordering && showAs === "check" ? (
+          {showAs === "check" ? (
             <div className="board-line__checks">
               <button
                 type="button"
@@ -190,19 +189,6 @@ export function BoardLine({
                 }
               >
                 {line.ticked ? "Done ✓" : "Mark done"}
-              </button>
-            </div>
-          ) : null}
-
-          {ordering ? (
-            <div className="board-line__checks">
-              <button
-                type="button"
-                className={`chip chip--danger${checkStateFromLine(line) === "86" ? " is-on" : ""}`}
-                disabled={busy}
-                onClick={() => onSetEightySix(line)}
-              >
-                86
               </button>
             </div>
           ) : null}
