@@ -200,6 +200,8 @@ MEDIA_ROOT = BASE_DIR / "media"
 # LLM provider D10 — Mistral via httpx (catalog.llm_provider). Live ingest blocked when unset.
 MISTRAL_API_KEY = env("MISTRAL_API_KEY", "") or ""
 LLM_MODEL = env("LLM_MODEL", "mistral-medium-latest")
+# D16 companion only — ingest keeps LLM_MODEL (vision); chat/brief get the flagship.
+COMPANION_MODEL = env("COMPANION_MODEL", "mistral-large-latest")
 
 # Phase 5 / D11 — Hermes A2A assist (loopback only). Secrets in .env only.
 A2A_BASE_URL = env("A2A_BASE_URL", "http://127.0.0.1:9900") or "http://127.0.0.1:9900"

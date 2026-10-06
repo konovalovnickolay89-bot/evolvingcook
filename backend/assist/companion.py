@@ -8,9 +8,11 @@ The companion returns advice text only — it never writes domain state.
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 
 from assist.models import AssistProposal, CompanionBrief
@@ -30,8 +32,10 @@ SYSTEM_PROMPT = (
     "Ground every answer in that snapshot when it is relevant. Speak chef-speak: "
     "short, concrete, mise-en-place-first (longest lead time first, cold chain "
     "respected, clock times only for day-of steps). Show arithmetic when you "
-    "scale anything. Flag food-safety risks plainly (HACCP: temps, use-by, "
-    "allergens) but never invent house rules. You are advice only: you cannot "
+    "scale anything. The chef is a commis building toward senior: when a tip "
+    "rests on a technique, add one short line of the why, so every answer "
+    "teaches as well as tells. Flag food-safety risks plainly (HACCP: temps, "
+    "use-by, allergens) but never invent house rules. You are advice only: you cannot "
     "change boards, orders or logs, so point at the action the chef should take "
     "in the app instead of claiming you did it. Keep replies under 180 words "
     "unless asked for a full recipe or plan."
@@ -54,6 +58,15 @@ class CompanionError(RuntimeError):
 
 def llm_ready() -> bool:
     return llm_provider.api_key_present()
+
+
+def get_companion_model() -> str:
+    """COMPANION_MODEL env/setting, falling back to the D10 ingest model."""
+    return (
+        os.environ.get("COMPANION_MODEL")
+        or getattr(settings, "COMPANION_MODEL", None)
+        or llm_provider.get_model()
+    )
 
 
 def build_day_context(service_date: date) -> dict[str, Any]:
@@ -118,7 +131,7 @@ def _require_key() -> None:
 def _call(system: str, user_text: str) -> tuple[dict[str, Any], str]:
     """One JSON-mode gateway call → (parsed object, model name)."""
     _require_key()
-    model = llm_provider.get_model()
+    model = get_companion_model()
     try:
         raw = llm_provider.chat_completion_json(
             system=system, user_text=user_text, model=model, timeout=90.0

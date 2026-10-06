@@ -4,7 +4,7 @@
 |-------|--------|
 | What | Context-aware assistant on the FE dashboard: free chat + cached daily tips |
 | Transport | Reuses the **D10 Mistral gateway** (`catalog/llm_provider.py`); no SDK, no new env |
-| Model | `LLM_MODEL` (default `mistral-medium-latest`) |
+| Model | `COMPANION_MODEL` (default **`mistral-large-latest`** — flagship, companion only); ingest keeps `LLM_MODEL` (vision) |
 | Context | Read-only snapshot per call: day status, per-section done/open/86 (+ 86'd dish names), open station-log lines (≤10/section), pending proposal count |
 | Writes | **Never.** Advice text only — the companion cannot touch boards, orders or logs |
 | Cache | `assist.CompanionBrief` — one row per service date; regenerate only with `refresh=true` |
