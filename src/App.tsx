@@ -381,6 +381,7 @@ export function App() {
       route={shellRoute}
       onNavigate={navFromShell}
       onOpenLogin={onOpenLogin}
+      fill={route === "chat"}
     >
       {body}
     </AppShell>

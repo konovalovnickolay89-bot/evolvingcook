@@ -36,4 +36,6 @@ See `ORIGIN.md` for published origin / Vite `allowedHosts`.
 
 ## FE handoff
 
-See `backend/docs/FE-SECTION-MODES.md` (Section Modes + Assist contract for Grok).
+Grok publishes the frontend from `main` — rules and the current release
+checklist are in `AGENTS.project.md` (Grok reads it automatically).
+Older contract notes: `backend/docs/FE-SECTION-MODES.md`.
