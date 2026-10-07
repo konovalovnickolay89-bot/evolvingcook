@@ -56,7 +56,9 @@ export function ChatPage({ onBack }: Props) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const lastMsgRef = useRef<HTMLDivElement | null>(null);
+  const prevCount = useRef<number | null>(null);
 
   /* Companion tuner — the house profile carried into every prompt. */
   const [tuneOpen, setTuneOpen] = useState(false);
@@ -107,9 +109,29 @@ export function ChatPage({ onBack }: Props) {
     }
   }
 
+  /* Keep the newest turn in view inside the chat pane — never scroll the
+     page. A fresh reply is aligned to its first line so long answers read
+     top-down; history restore, your own message and "thinking…" pin to the
+     bottom. */
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const pane = paneRef.current;
+    if (!pane) return;
+    const firstRun = prevCount.current === null;
+    const grew = !firstRun && messages.length > (prevCount.current ?? 0);
+    prevCount.current = messages.length;
+    const last = messages[messages.length - 1];
+    if (messages.length === 0) {
+      pane.scrollTop = 0;
+    } else if (grew && last?.role === "assistant" && lastMsgRef.current) {
+      pane.scrollTop = Math.max(0, lastMsgRef.current.offsetTop - 8);
+    } else if (firstRun || grew || busy) {
+      pane.scrollTop = pane.scrollHeight;
+    }
   }, [messages, busy]);
+
+  useEffect(() => {
+    if (tuneOpen) paneRef.current?.scrollTo({ top: 0 });
+  }, [tuneOpen]);
 
   async function send(text: string) {
     const content = text.trim();
@@ -175,85 +197,87 @@ export function ChatPage({ onBack }: Props) {
       </div>
       <div>
         <h2 className="page-title">Companion</h2>
-        <p className="page-lead" style={{ marginBottom: 0 }}>
+        <p className="page-lead chat-lead" style={{ marginBottom: 0 }}>
           Knows today's boards, log and 86s. Advice only — check against house
           SOPs.
         </p>
       </div>
 
-      {tuneOpen ? (
-        <div className="tune-card">
-          <h3 className="brief-card__title">Your standing rules</h3>
-          <p className="board-row__meta">
-            Carried into every answer and daily brief. Suppliers' cutoffs, par
-            habits, dishes you run, allergy rules — your words.
-          </p>
-          <textarea
-            className="field__input note-edit__area"
-            rows={5}
-            maxLength={4000}
-            value={profileDraft ?? ""}
-            disabled={profileBusy || profileDraft === null}
-            onChange={(e) => setProfileDraft(e.target.value)}
-            placeholder={
-              profileBusy && profileDraft === null
-                ? "Loading…"
-                : "e.g. Veg order cuts off 15:00 Mon–Fri. Skybar runs small plates only. Always flag sesame."
-            }
-          />
-          <button
-            type="button"
-            className="btn btn--primary btn--block"
-            disabled={profileBusy || profileDraft === null}
-            onClick={() => void saveProfile()}
-          >
-            {profileBusy ? "Saving…" : "Save rules"}
-          </button>
-          {profileMsg ? <p className="board-row__meta">{profileMsg}</p> : null}
-        </div>
-      ) : null}
-
-      {messages.length === 0 ? (
-        <div className="chat-starters">
-          {STARTERS.map((s) => (
+      <div className="chat-scroll" ref={paneRef}>
+        {tuneOpen ? (
+          <div className="tune-card">
+            <h3 className="brief-card__title">Your standing rules</h3>
+            <p className="board-row__meta">
+              Carried into every answer and daily brief. Suppliers' cutoffs, par
+              habits, dishes you run, allergy rules — your words.
+            </p>
+            <textarea
+              className="field__input note-edit__area"
+              rows={5}
+              maxLength={4000}
+              value={profileDraft ?? ""}
+              disabled={profileBusy || profileDraft === null}
+              onChange={(e) => setProfileDraft(e.target.value)}
+              placeholder={
+                profileBusy && profileDraft === null
+                  ? "Loading…"
+                  : "e.g. Veg order cuts off 15:00 Mon–Fri. Skybar runs small plates only. Always flag sesame."
+              }
+            />
             <button
-              key={s}
               type="button"
-              className="chip chat-starter"
-              disabled={busy}
-              onClick={() => void send(s)}
+              className="btn btn--primary btn--block"
+              disabled={profileBusy || profileDraft === null}
+              onClick={() => void saveProfile()}
             >
-              {s}
+              {profileBusy ? "Saving…" : "Save rules"}
             </button>
-          ))}
-        </div>
-      ) : null}
+            {profileMsg ? <p className="board-row__meta">{profileMsg}</p> : null}
+          </div>
+        ) : null}
 
-      <div className="chat-thread" aria-live="polite">
-        {messages.map((m, i) => (
-          <div
-            key={`${i}-${m.role}`}
-            className={`chat-msg chat-msg--${m.role === "user" ? "user" : "assist"}`}
-          >
-            {m.role === "assistant" ? (
+        {messages.length === 0 ? (
+          <div className="chat-starters">
+            {STARTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                className="chip chat-starter"
+                disabled={busy}
+                onClick={() => void send(s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="chat-thread" aria-live="polite">
+          {messages.map((m, i) => (
+            <div
+              key={`${i}-${m.role}`}
+              ref={i === messages.length - 1 ? lastMsgRef : undefined}
+              className={`chat-msg chat-msg--${m.role === "user" ? "user" : "assist"}`}
+            >
+              {m.role === "assistant" ? (
+                <span className="order-assist__badge chat-msg__badge" aria-hidden>
+                  A
+                </span>
+              ) : null}
+              <div className="chat-msg__body">{m.content}</div>
+            </div>
+          ))}
+          {busy ? (
+            <div className="chat-msg chat-msg--assist">
               <span className="order-assist__badge chat-msg__badge" aria-hidden>
                 A
               </span>
-            ) : null}
-            <div className="chat-msg__body">{m.content}</div>
-          </div>
-        ))}
-        {busy ? (
-          <div className="chat-msg chat-msg--assist">
-            <span className="order-assist__badge chat-msg__badge" aria-hidden>
-              A
-            </span>
-            <div className="chat-msg__body chat-msg__body--thinking">
-              thinking…
+              <div className="chat-msg__body chat-msg__body--thinking">
+                thinking…
+              </div>
             </div>
-          </div>
-        ) : null}
-        <div ref={endRef} />
+          ) : null}
+        </div>
       </div>
 
       {error ? <p className="field__error">{error}</p> : null}

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { VersionBanner } from "./VersionBanner";
 import { UpdateBanner } from "./UpdateBanner";
 import { getAccessToken } from "@/lib/tokenStorage";
+import { useViewportFill } from "@/lib/useViewportFill";
 
 /** Bottom nav: Station · Walk · Orders · Chat. board/log nested under Station. */
 export type AppRoute = "login" | "boards" | "board" | "walk" | "orders" | "chat";
@@ -11,6 +12,8 @@ type Props = {
   onNavigate: (r: AppRoute) => void;
   children: ReactNode;
   hideNav?: boolean;
+  /** Pin to the visible viewport; the page scrolls its own pane (chat). */
+  fill?: boolean;
   /** Tap session chip to re-auth (clears token only). */
   onOpenLogin?: () => void;
 };
@@ -20,12 +23,14 @@ export function AppShell({
   onNavigate,
   children,
   hideNav,
+  fill = false,
   onOpenLogin,
 }: Props) {
   const signedIn = Boolean(getAccessToken());
+  useViewportFill(fill);
 
   return (
-    <div className="app-shell">
+    <div className={fill ? "app-shell app-shell--fill" : "app-shell"}>
       <div className="app-shell__banners">
         <VersionBanner />
         <UpdateBanner />

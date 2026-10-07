@@ -99,6 +99,37 @@
   opacity: 0.4;
 }
 
+/* Fill layout (chat): the shell is pinned to the visible viewport —
+   useViewportFill mirrors visualViewport into --app-vh/--app-vt — and only
+   the page's own pane scrolls, so the composer can't slide under the nav or
+   the phone keyboard. While typing, header + nav step aside for room. */
+.app-shell--fill {
+  position: fixed;
+  top: var(--app-vt, 0px);
+  left: 0;
+  right: 0;
+  height: var(--app-vh, 100dvh);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell--fill .app-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: var(--space-03);
+}
+
+:root[data-keyboard="open"] .app-shell--fill .app-header,
+:root[data-keyboard="open"] .app-shell--fill .app-nav {
+  display: none;
+}
+
+:root[data-keyboard="open"] .app-shell--fill .app-main {
+  padding-top: calc(var(--space-03) + var(--safe-top));
+}
+
 /* ─── Banners ───────────────────────────────────────────── */
 
 .banner {
@@ -1985,7 +2016,31 @@
 /* ─── D16 Companion — chat ──────────────────────────────── */
 
 .chat-page {
+  flex: 1;
   min-height: 0;
+  gap: var(--space-03);
+}
+
+/* The only scroller on the chat page: tuner, starters and the thread. */
+.chat-scroll {
+  position: relative; /* message offsetTop is measured from here */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-04);
+  padding-bottom: var(--space-02);
+}
+
+.chat-scroll > * {
+  flex-shrink: 0;
+}
+
+:root[data-keyboard="open"] .chat-lead {
+  display: none;
 }
 
 .chat-starters {
@@ -2049,8 +2104,6 @@
 }
 
 .chat-compose {
-  position: sticky;
-  bottom: calc(var(--safe-bottom) + 3.5rem);
   display: grid;
   grid-template-columns: 1fr auto;
   gap: var(--space-02);
