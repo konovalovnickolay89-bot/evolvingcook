@@ -1,0 +1,44 @@
+/* Add / merge into src/styles/app.css */
+
+.proposal-card__quick {
+  display: flex;
+  gap: var(--space-02);
+  padding: 0 var(--space-04) var(--space-03);
+}
+
+.proposal-card__warn {
+  margin: 0;
+  padding: var(--space-02) var(--space-03);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--yellow) 12%, transparent);
+  border-left: 3px solid var(--yellow);
+  color: var(--fg);
+  font-size: var(--fs-body);
+  line-height: 1.35;
+}
+
+.proposal-card__quote {
+  margin: 0;
+  padding: var(--space-02) var(--space-03);
+  border-left: 3px solid var(--border);
+  color: var(--comment);
+  font-style: italic;
+  font-size: var(--fs-body);
+}
+
+.proposal-card__audit {
+  font-size: var(--fs-label);
+  color: var(--comment);
+}
+
+.proposal-card__audit summary {
+  cursor: pointer;
+  min-height: var(--touch-min);
+  display: flex;
+  align-items: center;
+}
+
+/* conf-chip removed from UI — keep rules inert or delete */
+.conf-chip {
+  display: none;
+}
