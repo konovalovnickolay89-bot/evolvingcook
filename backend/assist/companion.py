@@ -7,6 +7,7 @@ The companion returns advice text only — it never writes domain state.
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 from datetime import date
@@ -44,6 +45,14 @@ SYSTEM_PROMPT = (
     "Keep replies under 180 words unless asked for a full recipe or plan."
 )
 
+REPLY_FORMAT = (
+    "Write the reply for a phone screen. It is ONE plain-text string, never "
+    "an object or a list. Open with a one-line answer. Then short sections: "
+    "a '**Heading**' line, then '- ' bullets; lead a bullet with a short "
+    "label where it helps (Mise:, Lead:, Scale:, HACCP:, Why:). Blank line "
+    "between sections. No tables, no code blocks, no JSON inside the reply."
+)
+
 BRIEF_PROMPT = (
     "From the day snapshot, write 3 to 5 tips for this chef's shift today. "
     "Each tip is one practical, specific action or reminder grounded in the "
@@ -51,6 +60,84 @@ BRIEF_PROMPT = (
     "if the snapshot is thin, give seasoned kitchen habits for that weekday "
     "instead. No fluff, no repetition of the obvious."
 )
+
+
+_UNWRAP_KEYS = {"reply", "answer", "text", "message", "content"}
+
+
+def _label(key: Any) -> str:
+    s = str(key).replace("_", " ").strip()
+    return s[:1].upper() + s[1:]  # not .capitalize(): keep "HACCP"
+
+
+def _as_text(value: Any, depth: int = 0) -> str:
+    """Model output → readable chat text, whatever shape JSON mode returned.
+
+    Strings pass through; lists become '- ' bullets; objects become
+    '**Heading**' sections (container values) or '**Key:** value' lines.
+    Never str() a container — that leaks Python reprs into the chat.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if not isinstance(value, (list, dict)):
+        return str(value)
+    if depth > 4:
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            if isinstance(item, dict) and not any(
+                isinstance(v, (list, dict)) for v in item.values()
+            ):
+                flat = " · ".join(
+                    f"{_label(k)}: {_as_text(v)}"
+                    for k, v in item.items()
+                    if _as_text(v)
+                )
+                if flat:
+                    lines.append(f"- {flat}")
+                continue
+            text = _as_text(item, depth + 1)
+            if text:  # indent wrapped lines so they stay inside the bullet
+                lines.append(
+                    text
+                    if isinstance(item, (list, dict))
+                    else "- " + text.replace("\n", "\n  ")
+                )
+        return "\n".join(lines)
+    if len(value) == 1:
+        ((k, v),) = value.items()
+        if str(k).lower() in _UNWRAP_KEYS:
+            return _as_text(v, depth + 1)
+    blocks = []
+    for k, v in value.items():
+        text = _as_text(v, depth + 1)
+        if not text:
+            continue
+        if isinstance(v, (list, dict)):
+            blocks.append(f"**{_label(k)}**\n{text}")
+        else:
+            blocks.append(f"**{_label(k)}:** {text}")
+    return "\n\n".join(blocks)
+
+
+def _repair_reply(content: str) -> str:
+    """Replies stored before the _as_text fix can be Python reprs
+    ("{'actions': [...]}"). Turn them back into text so the model stops
+    copying that shape from the conversation."""
+    s = (content or "").strip()
+    if not s or s[0] not in "{[":
+        return content
+    for parse in (json.loads, ast.literal_eval):
+        try:
+            value = parse(s)
+        except Exception:  # noqa: BLE001 — any parse failure keeps the original
+            continue
+        if isinstance(value, (list, dict)):
+            return _as_text(value) or content
+    return content
 
 
 class CompanionError(RuntimeError):
@@ -186,6 +273,9 @@ def companion_chat(
         for m in messages[-MAX_MESSAGES:]
         if str(m.get("content", "")).strip()
     ]
+    for m in trimmed:
+        if m["role"] == "assistant":
+            m["content"] = _repair_reply(m["content"])
     if not trimmed or trimmed[-1]["role"] != "user":
         raise CompanionError("Last message must be from the chef.", code="bad_request")
 
@@ -194,12 +284,17 @@ def companion_chat(
             "day_snapshot": build_day_context(service_date),
             "house_profile": get_profile()["text"] or None,
             "conversation": trimmed,
-            "respond_with": {"reply": "string — your answer to the last message"},
+            "format": REPLY_FORMAT,
+            "respond_with": {
+                "reply": "one plain-text string — your answer to the last message"
+            },
         },
         ensure_ascii=False,
     )
     data, model = _call(SYSTEM_PROMPT, user_text)
-    reply = str(data.get("reply", "")).strip()
+    # JSON mode sometimes nests the answer ({"reply": {"actions": [...]}})
+    # or drops the wrapper; either way render it as text, never a repr.
+    reply = _repair_reply(_as_text(data["reply"] if "reply" in data else data))
     if not reply:
         raise CompanionError("Companion returned an empty reply.")
     return {"reply": reply, "model": model}
@@ -227,9 +322,9 @@ def daily_brief(service_date: date, refresh: bool = False) -> dict[str, Any]:
             return _brief_out(cached)
         raise
     tips = [
-        {"title": str(t.get("title", "")).strip(), "body": str(t.get("body", "")).strip()}
+        {"title": _as_text(t.get("title")), "body": _as_text(t.get("body"))}
         for t in (data.get("tips") or [])
-        if isinstance(t, dict) and str(t.get("body", "")).strip()
+        if isinstance(t, dict) and _as_text(t.get("body"))
     ][:5]
     if not tips:
         raise CompanionError("Companion returned no tips.")
@@ -305,7 +400,7 @@ def draft_recipe(prompt: str, covers: int | None = None) -> dict[str, Any]:
         for i in (data.get("ingredients") or [])
         if isinstance(i, dict) and str(i.get("name", "")).strip()
     ]
-    method = [str(s).strip() for s in (data.get("method") or []) if str(s).strip()]
+    method = [_as_text(s) for s in (data.get("method") or []) if _as_text(s)]
     if not ingredients or not method:
         raise CompanionError("Companion returned an incomplete recipe.")
     bc = data.get("base_covers")
@@ -319,7 +414,7 @@ def draft_recipe(prompt: str, covers: int | None = None) -> dict[str, Any]:
         "allergens": [
             str(a).strip() for a in (data.get("allergens") or []) if str(a).strip()
         ],
-        "notes": str(data.get("notes", "")).strip(),
+        "notes": _as_text(data.get("notes")),
         "source": "companion",
         "model": model,
     }
