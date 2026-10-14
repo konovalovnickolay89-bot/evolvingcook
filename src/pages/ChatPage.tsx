@@ -6,6 +6,8 @@ import {
   type ChatMessage,
 } from "@/api/companion";
 import { ApiError } from "@/api/client";
+import { ChatText } from "@/components/ChatText";
+import { repairReply } from "@/lib/chatFormat";
 import { todayServiceDate } from "@/lib/dates";
 import { useDictation } from "@/lib/useDictation";
 
@@ -35,7 +37,10 @@ function readHistory(): ChatMessage[] {
             (m as ChatMessage).role === "assistant") &&
           typeof (m as ChatMessage).content === "string",
       )
-      .slice(-HISTORY_CAP);
+      .slice(-HISTORY_CAP)
+      .map((m) =>
+        m.role === "assistant" ? { ...m, content: repairReply(m.content) } : m,
+      );
   } catch {
     return [];
   }
@@ -146,7 +151,7 @@ export function ChatPage({ onBack }: Props) {
       const out = await postCompanionChat(next.slice(-12), todayServiceDate());
       const withReply: ChatMessage[] = [
         ...next,
-        { role: "assistant", content: out.reply },
+        { role: "assistant", content: repairReply(out.reply) },
       ];
       setMessages(withReply);
       writeHistory(withReply);
@@ -264,7 +269,13 @@ export function ChatPage({ onBack }: Props) {
                   A
                 </span>
               ) : null}
-              <div className="chat-msg__body">{m.content}</div>
+              <div className="chat-msg__body">
+                {m.role === "assistant" ? (
+                  <ChatText text={m.content} />
+                ) : (
+                  m.content
+                )}
+              </div>
             </div>
           ))}
           {busy ? (
