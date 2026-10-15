@@ -1,4 +1,5 @@
 import type { ProposalOut } from "@/api/types";
+import { todayServiceDate } from "@/lib/dates";
 import {
   PROPOSAL_TARGET_LABELS,
   SECTION_LABELS,
@@ -104,6 +105,49 @@ export function proposalServiceDate(p: ProposalOut): string | null {
     : null;
 }
 
+/** Targets that only touch one service day's board (lines / POs for that date). */
+const DAY_TARGETS = new Set([
+  "line",
+  "planned_qty",
+  "prep_step",
+  "order_packs",
+  "component_fill",
+  "new_line",
+]);
+const DAY_KINDS = new Set([
+  "qty_draft",
+  "morning_qty",
+  "prep_plan",
+  "order_suggest",
+  "menu_completeness",
+]);
+
+/**
+ * True only for proposals that belong to a service day that has passed.
+ * Permanent (item) / every-day (template) notes and unreadable notes outlive
+ * the day they were written on — never "past", even with a service_date.
+ */
+export function isPastDayProposal(p: ProposalOut): boolean {
+  if (p.parse_error?.trim()) return false;
+  const d = proposalServiceDate(p);
+  if (d == null || d >= todayServiceDate()) return false;
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  const t = String(p.target ?? prop.target ?? "")
+    .toLowerCase()
+    .trim();
+  return DAY_TARGETS.has(t) || (!t && DAY_KINDS.has(p.kind));
+}
+
+/** order_packs rows: [{ name, packs, item_id, why }] */
+export function orderLinesOf(p: ProposalOut): Array<Record<string, unknown>> {
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  return Array.isArray(prop.lines)
+    ? (prop.lines as unknown[]).filter(
+        (r): r is Record<string, unknown> => !!r && typeof r === "object",
+      )
+    : [];
+}
+
 /** "Tue 6 Oct" for a YYYY-MM-DD service date. */
 export function shortServiceDate(iso: string): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -146,15 +190,18 @@ export function proposalTitle(p: ProposalOut): string {
   const kind = kindLabelOf(p);
   if (kind && !p.parse_error?.trim()) {
     const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const lines = orderLinesOf(p);
     const what =
       str(prop.title) ||
       str(prop.line_name) ||
       str(prop.name) ||
       str(ctx.line_name) ||
       str(ctx.dish) ||
-      str(prop.supplier_name) ||
-      "dish";
-    return `${kind.prefix} · ${what}`;
+      (lines.length
+        ? `${lines.length} item${lines.length === 1 ? "" : "s"}`
+        : "") ||
+      str(prop.supplier_name);
+    return what ? `${kind.prefix} · ${what}` : kind.prefix;
   }
   const note =
     (typeof prop.note === "string" && prop.note.trim()) ||
