@@ -236,6 +236,8 @@ def ensure_menu_completeness_proposals(
     st = get_setting(section)
     if st.mode not in ("ordering", "counts"):
         return []
+    if service_date < timezone.localdate():  # past day: history, no new proposals
+        return []
 
     from planning.models import ServiceDay
 
@@ -254,10 +256,9 @@ def ensure_menu_completeness_proposals(
     for ln in lines:
         if ln.components.exists():
             continue
-        # skip if pending already
+        # one per line in ANY status — a rejected fill isn't re-created on reload
         exists = AssistProposal.objects.filter(
             kind="menu_completeness",
-            status=AssistProposal.Status.PENDING,
             context__line_id=ln.pk,
         ).exists()
         if exists:
@@ -297,6 +298,8 @@ def ensure_order_suggest_from_board(
     st = get_setting(section)
     if st.mode not in ("ordering", "counts"):
         return None
+    if service_date < timezone.localdate():  # past day: history, no new suggestions
+        return None
 
     from planning.models import ServiceDay
 
@@ -319,6 +322,13 @@ def ensure_order_suggest_from_board(
     )
     if existing:
         return existing
+    # Decided (accepted/rejected) already today → don't re-suggest on every board GET.
+    if AssistProposal.objects.filter(
+        kind="order_suggest",
+        context__section=section,
+        context__service_date=str(service_date),
+    ).exists():
+        return None
 
     lines = (
         ProductionLine.objects.filter(service_section=sec)

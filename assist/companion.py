@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 from datetime import date
 from typing import Any
 
@@ -18,19 +19,31 @@ from django.utils import timezone
 
 from assist.models import AssistProposal, CompanionBrief, CompanionProfile
 from catalog import llm_provider
-from planning.models import ProductionLine, ServiceDay, StationLogLine
+from planning.models import DishTemplate, ProductionLine, ServiceDay, StationLogLine
 
 MAX_MESSAGES = 12
 MAX_CONTENT_CHARS = 2000
 MAX_LOG_LINES = 10
 MAX_PROFILE_CHARS = 4000
+MAX_MENU_DISHES = 150  # per section
+MAX_MENU_COMPONENTS = 20  # per dish
+MAX_MENU_NOTE_CHARS = 200
+# Leading tag the menu seeds write on template notes: "NEW · Oct 26 menu · …"
+_MENU_TAG = re.compile(r"^(NEW|CHANGED) · (?:[^·]*menu(?: · |$))?")
 
 SYSTEM_PROMPT = (
     "You are the kitchen companion inside Evolving Cook, a phone app used by "
     "one commis chef running stations at a London hotel kitchen (six sections: "
     "skybar, breakfast buffet, à la carte, banquet buffet, banqueting, canteen). "
     "You receive a JSON snapshot of the working day: section boards with done / "
-    "open / 86 counts, open station-log items, and pending assist proposals.\n"
+    "open / 86 counts, open station-log items, pending assist proposals, and "
+    "the live menu (menu: section → category → 'Dish — notes | component; "
+    "component', notes carry price and kcal; menu_changes names the dishes "
+    "added (new) or reworked (changed) at the latest menu change, every other "
+    "dish was already on; off_menu lists dishes that came off).\n"
+    "Answer menu questions from that menu: it is current and beats anything "
+    "said earlier in the conversation. Never invent dishes, prices or "
+    "components; when a dish lists none, say so.\n"
     "Ground every answer in that snapshot when it is relevant. Speak chef-speak: "
     "short, concrete, mise-en-place-first (longest lead time first, cold chain "
     "respected, clock times only for day-of steps). Show arithmetic when you "
@@ -56,7 +69,8 @@ REPLY_FORMAT = (
 BRIEF_PROMPT = (
     "From the day snapshot, write 3 to 5 tips for this chef's shift today. "
     "Each tip is one practical, specific action or reminder grounded in the "
-    "snapshot (86'd dishes, open log items, pending proposals, day of week); "
+    "snapshot (menu dishes, 86'd dishes, open log items, pending proposals, "
+    "day of week); "
     "if the snapshot is thin, give seasoned kitchen habits for that weekday "
     "instead. No fluff, no repetition of the obvious."
 )
@@ -182,6 +196,64 @@ def get_companion_model() -> str:
     )
 
 
+def _menu_dish(t: DishTemplate) -> tuple[str, str]:
+    """('Name — notes | component; component', "new" | "changed" | "")."""
+    text = t.name
+    note = " ".join(t.notes.split())
+    change = ""
+    tag = _MENU_TAG.match(note)
+    if tag:  # → menu_changes; inline, the model read "Oct 26 menu" as 26 Oct
+        change, note = tag.group(1).lower(), note[tag.end() :]
+    if note:
+        if len(note) > MAX_MENU_NOTE_CHARS:
+            note = note[: MAX_MENU_NOTE_CHARS - 1].rstrip() + "…"
+        text += f" — {note}"
+    names = [
+        (c.item.name if c.item_id else c.name).strip() for c in t.components.all()
+    ]
+    comps = list(dict.fromkeys(n for n in names if n))  # dedupe, keep order
+    if comps:
+        more = len(comps) - MAX_MENU_COMPONENTS
+        text += " | " + "; ".join(comps[:MAX_MENU_COMPONENTS])
+        if more > 0:
+            text += f" (+{more} more)"
+    return text, change
+
+
+def build_menu_context() -> dict[str, Any]:
+    """Live menu from dish templates → menu / menu_changes / off_menu.
+
+    All keyed by section. Templates are the standing menu, so the companion
+    knows a menu change even on a board opened before it. Categories that
+    just repeat the section name read as "other".
+    """
+    menu: dict[str, Any] = {}
+    changes: dict[str, dict[str, list[str]]] = {}
+    shown: dict[str, int] = {}
+    hidden: dict[str, int] = {}
+    for t in DishTemplate.objects.filter(active=True).prefetch_related(
+        "components__item"
+    ):
+        if shown.get(t.section, 0) >= MAX_MENU_DISHES:
+            hidden[t.section] = hidden.get(t.section, 0) + 1
+            continue
+        shown[t.section] = shown.get(t.section, 0) + 1
+        cat = t.category if t.category and t.category != t.section else "other"
+        line, change = _menu_dish(t)
+        menu.setdefault(t.section, {}).setdefault(cat, []).append(line)
+        if change:
+            changes.setdefault(t.section, {}).setdefault(change, []).append(t.name)
+    for section, n in hidden.items():
+        menu[section]["not_shown"] = [f"+{n} more dishes"]
+
+    off_menu: dict[str, list[str]] = {}
+    for section, name in DishTemplate.objects.filter(active=False).values_list(
+        "section", "name"
+    ):
+        off_menu.setdefault(section, []).append(name)
+    return {"menu": menu, "menu_changes": changes, "off_menu": off_menu}
+
+
 def build_day_context(service_date: date) -> dict[str, Any]:
     """Compact read-only snapshot of the day for prompt grounding."""
     ctx: dict[str, Any] = {
@@ -192,6 +264,7 @@ def build_day_context(service_date: date) -> dict[str, Any]:
         "pending_proposals": AssistProposal.objects.filter(
             status=AssistProposal.Status.PENDING
         ).count(),
+        **build_menu_context(),
     }
     day = (
         ServiceDay.objects.filter(service_date=service_date)
@@ -242,22 +315,32 @@ def _require_key() -> None:
 
 
 def _call(system: str, user_text: str) -> tuple[dict[str, Any], str]:
-    """One JSON-mode gateway call → (parsed object, model name)."""
+    """One JSON-mode gateway call → (parsed object, model name).
+
+    JSON mode now and then leaves a quote unescaped in a long reply (seen
+    live on a menu list); the same call made again is well-formed, so one
+    retry beats a "companion offline" screen.
+    """
     _require_key()
     model = get_companion_model()
-    try:
-        raw = llm_provider.chat_completion_json(
-            system=system, user_text=user_text, model=model, timeout=90.0
-        )
-    except Exception as exc:  # httpx/network/provider errors → one clear code
-        raise CompanionError(f"Companion call failed: {exc}") from exc
-    try:
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("not an object")
-    except ValueError as exc:
-        raise CompanionError(f"Companion returned invalid JSON: {exc}") from exc
-    return data, model
+    for attempt in (1, 2):
+        try:
+            raw = llm_provider.chat_completion_json(
+                system=system, user_text=user_text, model=model, timeout=90.0
+            )
+        except Exception as exc:  # httpx/network/provider errors → one clear code
+            raise CompanionError(f"Companion call failed: {exc}") from exc
+        try:
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError("not an object")
+            return data, model
+        except ValueError as exc:
+            if attempt == 2:
+                raise CompanionError(
+                    f"Companion returned invalid JSON: {exc}"
+                ) from exc
+    raise AssertionError("unreachable")
 
 
 def companion_chat(
