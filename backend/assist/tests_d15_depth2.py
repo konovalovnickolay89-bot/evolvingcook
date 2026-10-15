@@ -172,3 +172,55 @@ class WalkShortfallTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertGreaterEqual(rows[0]["packs"], 1)
         self.assertIn("shortfall", rows[0]["why"])
+
+
+class OrderingAssistNoResurrectTests(TestCase):
+    """Board GETs must not re-create rejected ordering proposals or draft into past days."""
+
+    def setUp(self):
+        ensure_all_section_settings()
+        upsert_section_mode("canteen", mode="ordering")
+
+    def _line(self, service_date):
+        day = ServiceDay.objects.create(service_date=service_date)
+        sec = ServiceSection.objects.create(
+            service_day=day, section=ServiceSectionCode.CANTEEN, covers=40
+        )
+        return ProductionLine.objects.create(
+            service_section=sec,
+            name="No-components dish",
+            mode=ProductionLine.Mode.CHECK,
+            kind=ProductionLine.Kind.DISH,
+            unit="ea",
+        )
+
+    def test_rejected_menu_completeness_not_recreated(self):
+        from planning.ordering_assist import ensure_menu_completeness_proposals
+
+        today = timezone.localdate()
+        self._line(today)
+        created = ensure_menu_completeness_proposals(service_date=today, section="canteen")
+        self.assertEqual(len(created), 1)
+        created[0].status = AssistProposal.Status.REJECTED
+        created[0].save(update_fields=["status"])
+        self.assertEqual(
+            ensure_menu_completeness_proposals(service_date=today, section="canteen"), []
+        )
+
+    def test_no_ordering_proposals_for_past_day(self):
+        from datetime import timedelta
+
+        from planning.ordering_assist import (
+            ensure_menu_completeness_proposals,
+            ensure_order_suggest_from_board,
+        )
+
+        past = timezone.localdate() - timedelta(days=1)
+        self._line(past)
+        self.assertEqual(
+            ensure_menu_completeness_proposals(service_date=past, section="canteen"), []
+        )
+        self.assertIsNone(
+            ensure_order_suggest_from_board(service_date=past, section="canteen")
+        )
+        self.assertFalse(AssistProposal.objects.exists())
