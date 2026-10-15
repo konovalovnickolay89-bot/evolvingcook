@@ -1,6 +1,7 @@
 import type { ProposalOut } from "@/api/types";
 import {
   PROPOSAL_TARGET_LABELS,
+  SECTION_LABELS,
   type ProposalTargetKey,
 } from "@/contract";
 
@@ -69,8 +70,7 @@ export type TargetConfidence = "high" | "med" | "low";
 export function targetConfidenceOf(p: ProposalOut): TargetConfidence {
   const prop = (p.proposal ?? {}) as Record<string, unknown>;
   // Prefer top-level field (0.1.14); bag nested confidence only as fallback
-  const raw =
-    p.target_confidence ?? prop.target_confidence ?? prop.confidence;
+  const raw = p.target_confidence ?? prop.target_confidence ?? prop.confidence;
   const s = String(raw ?? "")
     .toLowerCase()
     .trim();
@@ -86,9 +86,76 @@ export function targetConfidenceOf(p: ProposalOut): TargetConfidence {
   return "med";
 }
 
+/** qty_draft / morning_qty — sets planned_qty on a board line, not a note. */
+export function isQtyProposal(p: ProposalOut): boolean {
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  return (
+    prop.target === "planned_qty" ||
+    p.kind === "qty_draft" ||
+    p.kind === "morning_qty"
+  );
+}
+
+/** Service date the proposal belongs to (context.service_date), if any. */
+export function proposalServiceDate(p: ProposalOut): string | null {
+  const c = (p.context ?? {}) as Record<string, unknown>;
+  return typeof c.service_date === "string" && c.service_date
+    ? c.service_date
+    : null;
+}
+
+/** "Tue 6 Oct" for a YYYY-MM-DD service date. */
+export function shortServiceDate(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/** D15 targets that aren't note scopes: chip label + title prefix. */
+const KIND_LABELS: Record<string, { chip: string; prefix: string }> = {
+  planned_qty: { chip: "qty draft", prefix: "Qty" },
+  prep_step: { chip: "prep step", prefix: "Prep" },
+  component_fill: { chip: "ingredients", prefix: "Ingredients" },
+  order_packs: { chip: "order", prefix: "Order" },
+  new_line: { chip: "new dish line", prefix: "New line" },
+};
+
+function kindLabelOf(p: ProposalOut): { chip: string; prefix: string } | null {
+  const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  const t = typeof prop.target === "string" ? prop.target : "";
+  if (KIND_LABELS[t]) return KIND_LABELS[t]!;
+  if (p.kind === "qty_draft" || p.kind === "morning_qty")
+    return KIND_LABELS.planned_qty!;
+  if (p.kind === "prep_plan") return KIND_LABELS.prep_step!;
+  return null;
+}
+
+/** Chip for non-note proposals (qty / prep / ingredients …); null → note scope chip. */
+export function proposalKindChip(p: ProposalOut): string | null {
+  return kindLabelOf(p)?.chip ?? null;
+}
+
 /** Human title: note — never kind enum, never raw note slice prefix */
 export function proposalTitle(p: ProposalOut): string {
   const prop = (p.proposal ?? {}) as Record<string, unknown>;
+  const ctx = (p.context ?? {}) as Record<string, unknown>;
+  const kind = kindLabelOf(p);
+  if (kind && !p.parse_error?.trim()) {
+    const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+    const what =
+      str(prop.title) ||
+      str(prop.line_name) ||
+      str(prop.name) ||
+      str(ctx.line_name) ||
+      str(ctx.dish) ||
+      str(prop.supplier_name) ||
+      "dish";
+    return `${kind.prefix} · ${what}`;
+  }
   const note =
     (typeof prop.note === "string" && prop.note.trim()) ||
     (typeof prop.summary === "string" && prop.summary.trim()) ||
@@ -109,7 +176,9 @@ export function proposalContextLabel(p: ProposalOut): string {
   if (typeof c.item_name === "string" && c.item_name.trim()) return c.item_name;
   if (typeof c.template_name === "string" && c.template_name.trim())
     return c.template_name;
-  if (typeof c.section === "string" && c.section.trim()) return c.section;
+  if (typeof c.section === "string" && c.section.trim()) {
+    return (SECTION_LABELS as Record<string, string>)[c.section] ?? c.section;
+  }
   return "";
 }
 
@@ -149,8 +218,7 @@ export function coercePendingProposal(
   const status = typeof o.status === "string" ? o.status : "pending";
   if (status !== "pending" && status !== "") return null;
 
-  const parseError =
-    typeof o.parse_error === "string" ? o.parse_error : "";
+  const parseError = typeof o.parse_error === "string" ? o.parse_error : "";
   // D14: parse_error is inbox-only
   if (parseError.trim()) return null;
 
@@ -192,8 +260,7 @@ export function coercePendingProposal(
       typeof o.decided_at === "string" || o.decided_at === null
         ? (o.decided_at as string | null)
         : null,
-    reject_reason:
-      typeof o.reject_reason === "string" ? o.reject_reason : "",
+    reject_reason: typeof o.reject_reason === "string" ? o.reject_reason : "",
     task_id:
       typeof o.task_id === "string" || o.task_id === null
         ? (o.task_id as string | null)
@@ -203,8 +270,7 @@ export function coercePendingProposal(
         ? (o.job_id as number | null)
         : null,
     parse_error: "",
-    accept_able:
-      typeof o.accept_able === "boolean" ? o.accept_able : true,
+    accept_able: typeof o.accept_able === "boolean" ? o.accept_able : true,
     created_at:
       typeof o.created_at === "string"
         ? o.created_at

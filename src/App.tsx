@@ -14,10 +14,13 @@ import { InboxPage } from "@/pages/InboxPage";
 import { clearAccessToken, isTokenPresent } from "@/lib/tokenStorage";
 import { readStationContext, rememberStation } from "@/lib/stationContext";
 import { ensureDbOpen } from "@/db";
+import { useQuery } from "@tanstack/react-query";
+import { listProposals } from "@/api/assist";
 
 type StationTarget = { serviceDate: string; section: string } | null;
 
-type Route = AppRoute | "delivery" | "inbox" | "station-log" | "recipes" | "recipe";
+type Route =
+  AppRoute | "delivery" | "inbox" | "station-log" | "recipes" | "recipe";
 
 type RecipeRef = "new" | number | null;
 
@@ -322,15 +325,10 @@ export function App() {
     body = <InboxPage onBack={backFromInbox} />;
   } else if (route === "delivery" && deliveryId) {
     body = (
-      <DeliveryPage
-        deliveryId={deliveryId}
-        onBack={() => navigate("orders")}
-      />
+      <DeliveryPage deliveryId={deliveryId} onBack={() => navigate("orders")} />
     );
   } else if (route === "orders") {
-    body = (
-      <OrdersPage initialPoIds={poIds} onOpenDelivery={openDelivery} />
-    );
+    body = <OrdersPage initialPoIds={poIds} onOpenDelivery={openDelivery} />;
   } else if (route === "station-log" && station) {
     body = (
       <StationLogPage
@@ -365,6 +363,40 @@ export function App() {
     );
   }
 
+  return (
+    <AuthedShell
+      route={route}
+      onNavigate={navFromShell}
+      onOpenLogin={onOpenLogin}
+      onOpenInbox={openInbox}
+    >
+      {body}
+    </AuthedShell>
+  );
+}
+
+/** Signed-in shell: owns the pending-proposals badge so it polls only when authed. */
+function AuthedShell({
+  route,
+  onNavigate,
+  onOpenLogin,
+  onOpenInbox,
+  children,
+}: {
+  route: Route;
+  onNavigate: (r: AppRoute) => void;
+  onOpenLogin: () => void;
+  onOpenInbox: () => void;
+  children: ReactNode;
+}) {
+  const inboxQ = useQuery({
+    queryKey: ["proposals", "badge"],
+    queryFn: ({ signal }) =>
+      listProposals({ status: "pending", limit: 50 }, signal),
+    retry: false,
+    refetchInterval: 30_000,
+  });
+
   const shellRoute: AppRoute =
     route === "board" ||
     route === "inbox" ||
@@ -379,11 +411,14 @@ export function App() {
   return (
     <AppShell
       route={shellRoute}
-      onNavigate={navFromShell}
+      onNavigate={onNavigate}
       onOpenLogin={onOpenLogin}
+      onOpenInbox={onOpenInbox}
+      inboxCount={inboxQ.data?.length ?? 0}
+      inboxActive={route === "inbox"}
       fill={route === "chat"}
     >
-      {body}
+      {children}
     </AppShell>
   );
 }

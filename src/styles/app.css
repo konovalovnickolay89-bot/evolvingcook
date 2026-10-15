@@ -2275,3 +2275,73 @@
   color: var(--comment);
   text-align: right;
 }
+
+/* Header actions: Inbox door + Account */
+.app-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-02);
+  flex-shrink: 0;
+}
+
+.header-inbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.header-inbox[aria-current="page"] {
+  color: var(--fg);
+  border-color: var(--blue);
+}
+
+.header-inbox__count {
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--red);
+  color: var(--bg-dark);
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.1rem;
+  text-align: center;
+}
+
+/* Chip hugs its label instead of stretching across the card */
+.board-row__main > .target-chip {
+  align-self: flex-start;
+}
+
+.target-chip--qty {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, transparent);
+}
+
+.proposal-card__qty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-02);
+}
+
+.inbox-group {
+  margin: var(--space-03) 0 0;
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--comment);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-03);
+}
+
+/* Decided cards: solid + quieter, so dashed = still needs you */
+.proposal-card:not(.proposal-card--pending) {
+  border-style: solid;
+  border-color: var(--border);
+}

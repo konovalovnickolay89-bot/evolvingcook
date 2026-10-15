@@ -9,6 +9,8 @@ import {
 import type { ProposalOut } from "@/api/types";
 import { ProposalCard } from "@/components/ProposalCard";
 import { EmptyState, LoadingState } from "@/components/AppShell";
+import { todayServiceDate } from "@/lib/dates";
+import { proposalServiceDate } from "@/lib/proposalTarget";
 
 /** Presentation: To review / Done — not raw status enums */
 type Filter = "review" | "done";
@@ -19,6 +21,12 @@ type Props = {
 
 function isParseErrorCard(p: ProposalOut): boolean {
   return Boolean(p.parse_error?.trim());
+}
+
+/** Belongs to a service day that's already gone — nothing left to act on. */
+function isPastDay(p: ProposalOut): boolean {
+  const d = proposalServiceDate(p);
+  return d != null && d < todayServiceDate();
 }
 
 export function InboxPage({ onBack }: Props) {
@@ -54,13 +62,47 @@ export function InboxPage({ onBack }: Props) {
       const ae = isParseErrorCard(a) ? 0 : 1;
       const be = isParseErrorCard(b) ? 0 : 1;
       if (ae !== be) return ae - be;
-      return b.created_at.localeCompare(a.created_at);
+      // Done: most recently decided first
+      const ak = (filter === "done" && a.decided_at) || a.created_at;
+      const bk = (filter === "done" && b.decided_at) || b.created_at;
+      return bk.localeCompare(ak);
     });
     return rows;
   }, [q.data, filter]);
 
+  const current =
+    filter === "review" ? list.filter((p) => !isPastDay(p)) : list;
+  const past = filter === "review" ? list.filter(isPastDay) : [];
+  const [clearing, setClearing] = useState(false);
+
+  async function rejectPast() {
+    if (
+      !window.confirm(
+        `Reject ${past.length} proposal(s) for past service days?`,
+      )
+    )
+      return;
+    setClearing(true);
+    setError(null);
+    try {
+      for (const p of past) await rejectProposal(p.id, { reason: "expired" });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reject failed");
+    } finally {
+      setClearing(false);
+      await qc.invalidateQueries({ queryKey: ["proposals"] });
+      await qc.invalidateQueries({ queryKey: ["board"] });
+    }
+  }
+
   const acceptMut = useMutation({
-    mutationFn: (p: ProposalOut) => acceptProposal(p.id),
+    mutationFn: ({
+      p,
+      overlay,
+    }: {
+      p: ProposalOut;
+      overlay?: Record<string, unknown>;
+    }) => acceptProposal(p.id, overlay ? { proposal: overlay } : null),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["proposals"] });
       await qc.invalidateQueries({ queryKey: ["board"] });
@@ -103,6 +145,40 @@ export function InboxPage({ onBack }: Props) {
     }
   }
 
+  const renderCard = (p: ProposalOut) => (
+    <ProposalCard
+      key={p.id}
+      proposal={p}
+      compact
+      inbox
+      busy={busyId === p.id}
+      onAccept={async (pr, overlay) => {
+        if (isParseErrorCard(pr)) return;
+        setBusyId(pr.id);
+        setError(null);
+        try {
+          await acceptMut.mutateAsync({ p: pr, overlay });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Accept failed");
+        } finally {
+          setBusyId(null);
+        }
+      }}
+      onReject={async (pr, reason) => {
+        setBusyId(pr.id);
+        setError(null);
+        try {
+          await rejectMut.mutateAsync({ p: pr, reason });
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Reject failed");
+        } finally {
+          setBusyId(null);
+        }
+      }}
+      onRewrite={onRewrite}
+    />
+  );
+
   const assistDown =
     q.isError &&
     q.error instanceof Error &&
@@ -116,7 +192,8 @@ export function InboxPage({ onBack }: Props) {
       <div>
         <h2 className="page-title">Proposals</h2>
         <p className="page-lead" style={{ marginBottom: 0 }}>
-          Review queue only — accept or reject. No chat.
+          Suggestions from assist — quantities, prep steps, ingredients and
+          notes. Accept to apply to the board, or reject.
         </p>
       </div>
 
@@ -159,40 +236,27 @@ export function InboxPage({ onBack }: Props) {
       ) : null}
 
       <div className="stack" style={{ gap: "var(--space-03)" }}>
-        {list.map((p) => (
-          <ProposalCard
-            key={p.id}
-            proposal={p}
-            compact
-            inbox
-            busy={busyId === p.id}
-            onAccept={async (pr) => {
-              if (isParseErrorCard(pr)) return;
-              setBusyId(pr.id);
-              setError(null);
-              try {
-                await acceptMut.mutateAsync(pr);
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Accept failed");
-              } finally {
-                setBusyId(null);
-              }
-            }}
-            onReject={async (pr, reason) => {
-              setBusyId(pr.id);
-              setError(null);
-              try {
-                await rejectMut.mutateAsync({ p: pr, reason });
-              } catch (e) {
-                setError(e instanceof Error ? e.message : "Reject failed");
-              } finally {
-                setBusyId(null);
-              }
-            }}
-            onRewrite={onRewrite}
-          />
-        ))}
+        {current.map(renderCard)}
       </div>
+
+      {past.length > 0 ? (
+        <>
+          <p className="inbox-group">
+            <span>Past service days · {past.length}</span>
+            <button
+              type="button"
+              className="chip chip--danger"
+              disabled={clearing}
+              onClick={() => void rejectPast()}
+            >
+              {clearing ? "Rejecting…" : "Reject all"}
+            </button>
+          </p>
+          <div className="stack" style={{ gap: "var(--space-03)" }}>
+            {past.map(renderCard)}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

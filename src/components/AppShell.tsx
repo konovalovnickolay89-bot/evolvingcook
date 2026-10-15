@@ -5,7 +5,8 @@ import { getAccessToken } from "@/lib/tokenStorage";
 import { useViewportFill } from "@/lib/useViewportFill";
 
 /** Bottom nav: Station · Walk · Orders · Chat. board/log nested under Station. */
-export type AppRoute = "login" | "boards" | "board" | "walk" | "orders" | "chat";
+export type AppRoute =
+  "login" | "boards" | "board" | "walk" | "orders" | "chat";
 
 type Props = {
   route: AppRoute;
@@ -16,6 +17,10 @@ type Props = {
   fill?: boolean;
   /** Tap session chip to re-auth (clears token only). */
   onOpenLogin?: () => void;
+  /** Header door to the proposals inbox — always reachable when signed in. */
+  onOpenInbox?: () => void;
+  inboxCount?: number;
+  inboxActive?: boolean;
 };
 
 export function AppShell({
@@ -25,6 +30,9 @@ export function AppShell({
   hideNav,
   fill = false,
   onOpenLogin,
+  onOpenInbox,
+  inboxCount = 0,
+  inboxActive = false,
 }: Props) {
   const signedIn = Boolean(getAccessToken());
   useViewportFill(fill);
@@ -41,20 +49,36 @@ export function AppShell({
           <p className="app-header__sub">Hilton London Wembley</p>
           <h1 className="app-header__title">Evolving Cook</h1>
         </div>
-        {onOpenLogin ? (
-          <button
-            type="button"
-            className="session-chip session-chip--btn"
-            title="Sign in / switch account"
-            onClick={onOpenLogin}
-          >
-            {signedIn ? "Account" : "Sign in"}
-          </button>
-        ) : (
-          <span className="session-chip">
-            {signedIn ? "Account" : "Sign in"}
-          </span>
-        )}
+        <div className="app-header__actions">
+          {onOpenInbox ? (
+            <button
+              type="button"
+              className="session-chip session-chip--btn header-inbox"
+              aria-current={inboxActive ? "page" : undefined}
+              aria-label={`Inbox — ${inboxCount} to review`}
+              onClick={onOpenInbox}
+            >
+              Inbox
+              {inboxCount > 0 ? (
+                <span className="header-inbox__count">{inboxCount}</span>
+              ) : null}
+            </button>
+          ) : null}
+          {onOpenLogin ? (
+            <button
+              type="button"
+              className="session-chip session-chip--btn"
+              title="Sign in / switch account"
+              onClick={onOpenLogin}
+            >
+              {signedIn ? "Account" : "Sign in"}
+            </button>
+          ) : (
+            <span className="session-chip">
+              {signedIn ? "Account" : "Sign in"}
+            </span>
+          )}
+        </div>
       </header>
 
       <main className="app-main">{children}</main>
