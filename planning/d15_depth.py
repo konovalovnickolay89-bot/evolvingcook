@@ -41,6 +41,10 @@ def ensure_qty_draft_proposals(
     st = get_setting(section)
     if st.mode != "counts":
         return []
+    # A past day's counts are history — never draft into it (board GETs on
+    # yesterday's board used to refill the inbox with dead proposals).
+    if service_date < timezone.localdate():
+        return []
 
     try:
         day = ServiceDay.objects.get(service_date=service_date)
@@ -69,9 +73,9 @@ def ensure_qty_draft_proposals(
     for ln in lines:
         if ln.mode == ProductionLine.Mode.CHECK:
             continue
-        # skip if pending qty already
+        # One draft per line per day: skip if one exists in ANY status, so a
+        # rejected/accepted draft isn't re-created on the next board load.
         if AssistProposal.objects.filter(
-            status=AssistProposal.Status.PENDING,
             kind__in=("qty_draft", "morning_qty"),
             context__line_id=ln.pk,
             context__service_date=str(service_date),

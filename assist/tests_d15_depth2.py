@@ -49,6 +49,45 @@ class QtyDraftTests(TestCase):
         self.assertTrue(p.proposal.get("working"))
 
 
+    def test_rejected_draft_not_recreated(self):
+        created = ensure_qty_draft_proposals(
+            service_date=self.day.service_date, section="canteen"
+        )
+        self.assertEqual(len(created), 1)
+        p = created[0]
+        p.status = AssistProposal.Status.REJECTED
+        p.save(update_fields=["status"])
+        again = ensure_qty_draft_proposals(
+            service_date=self.day.service_date, section="canteen"
+        )
+        self.assertEqual(again, [])
+        self.assertEqual(
+            AssistProposal.objects.filter(context__line_id=self.line.pk).count(), 1
+        )
+
+    def test_no_drafts_for_past_day(self):
+        from datetime import timedelta
+
+        past = ServiceDay.objects.create(
+            service_date=timezone.localdate() - timedelta(days=1)
+        )
+        sec = ServiceSection.objects.create(
+            service_day=past, section=ServiceSectionCode.CANTEEN, covers=40
+        )
+        ProductionLine.objects.create(
+            service_section=sec,
+            name="Old stew",
+            mode=ProductionLine.Mode.PRODUCE,
+            kind=ProductionLine.Kind.DISH,
+            proposed_qty=Decimal("10"),
+            unit="ea",
+        )
+        self.assertEqual(
+            ensure_qty_draft_proposals(service_date=past.service_date, section="canteen"),
+            [],
+        )
+
+
 class PrepPlanLlmApplyTests(TestCase):
     def setUp(self):
         ensure_all_section_settings()
