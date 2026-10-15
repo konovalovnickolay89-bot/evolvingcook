@@ -105,3 +105,31 @@ class CompanionChatShapeTests(SimpleTestCase):
         sent = payload["conversation"][1]["content"]
         self.assertTrue(sent.startswith("**Actions**"))
         self.assertIn("phone screen", payload["format"])
+
+
+@patch.object(companion, "_require_key", lambda: None)
+class CompanionInvalidJsonRetryTests(SimpleTestCase):
+    def _call_with(self, raws):
+        calls = []
+
+        def fake(**kwargs):
+            calls.append(kwargs)
+            return raws[len(calls) - 1]
+
+        with patch.object(companion.llm_provider, "chat_completion_json", fake):
+            return companion._call("sys", "user"), len(calls)
+
+    def test_one_retry_after_invalid_json(self):
+        broken = '{"reply": "Hot dip is "off" the menu."}'  # shape seen live
+        (data, _), n = self._call_with([broken, '{"reply": "Hot dip is off."}'])
+        self.assertEqual(data, {"reply": "Hot dip is off."})
+        self.assertEqual(n, 2)
+
+    def test_valid_json_is_not_retried(self):
+        (data, _), n = self._call_with(['{"reply": "ok"}'])
+        self.assertEqual((data, n), ({"reply": "ok"}, 1))
+
+    def test_gives_up_after_the_retry(self):
+        with self.assertRaises(companion.CompanionError) as cm:
+            self._call_with(['{"reply": "x', "[1]"])
+        self.assertIn("invalid JSON", str(cm.exception))
