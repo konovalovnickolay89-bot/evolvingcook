@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { ProposalOut } from "@/api/types";
-import {
-  PROPOSAL_REJECT_LABELS,
-  PROPOSAL_REJECT_REASONS,
-} from "@/contract";
+import { PROPOSAL_REJECT_LABELS, PROPOSAL_REJECT_REASONS } from "@/contract";
 import { formatDecimal } from "@/lib/decimal";
+import { todayServiceDate } from "@/lib/dates";
 import {
+  isQtyProposal,
   proposalContextLabel,
+  proposalKindChip,
+  proposalServiceDate,
+  shortServiceDate,
   proposalTargetLabel,
   proposalTargetOf,
   proposalTitle,
@@ -18,7 +20,8 @@ import {
 type Props = {
   proposal: ProposalOut;
   busy?: boolean;
-  onAccept: (p: ProposalOut) => void;
+  /** overlay → AcceptIn `{ proposal: overlay }` (e.g. chef-entered planned_qty) */
+  onAccept: (p: ProposalOut, overlay?: Record<string, unknown>) => void;
   onReject: (p: ProposalOut, reason: string) => void;
   /**
    * Collapsed-by-default (tap header to expand).
@@ -45,7 +48,14 @@ export function ProposalCard({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [otherNote, setOtherNote] = useState("");
   const [rewriteOpen, setRewriteOpen] = useState(false);
+  const proposedQty = (proposal.proposal as Record<string, unknown> | null)
+    ?.planned_qty;
+  const [qtyText, setQtyText] = useState(
+    proposedQty != null ? String(proposedQty) : "",
+  );
   const [rewriteText, setRewriteText] = useState("");
+  const isQty = !isParseError && isQtyProposal(proposal);
+  const kindChip = isParseError ? null : proposalKindChip(proposal);
 
   const conf = targetConfidenceOf(proposal);
   const pending = proposal.status === "pending";
@@ -58,13 +68,16 @@ export function ProposalCard({
   const targetLabel = proposalTargetLabel(target);
   const title = proposalTitle(proposal);
   const ctxLabel = proposalContextLabel(proposal);
+  const serviceDate = proposalServiceDate(proposal);
+  const pastDay = serviceDate != null && serviceDate < todayServiceDate();
   const { main: rationaleMain, audit } = rationaleDisplay(
     proposal.rationale || "",
   );
 
   // Trust backend accept_able; low-conf never quick-accepts on collapsed card
   const backendOk = proposal.accept_able !== false && !isParseError;
-  const showQuickAccept = pending && backendOk && conf === "high" && compact;
+  const showQuickAccept =
+    pending && backendOk && conf === "high" && compact && !isQty;
   const showExpandedAccept =
     pending && backendOk && (conf !== "high" || open || !compact);
 
@@ -108,13 +121,20 @@ export function ProposalCard({
           <span className="board-row__meta">
             {[
               ctxLabel,
+              serviceDate && serviceDate !== todayServiceDate()
+                ? shortServiceDate(serviceDate)
+                : "",
               relativeAge(proposal.created_at),
               !pending ? proposal.status : "",
             ]
               .filter(Boolean)
               .join(" · ")}
           </span>
-          {!isParseError ? (
+          {kindChip ? (
+            <span className="target-chip target-chip--qty">
+              {pastDay && pending ? `${kindChip} · past day` : kindChip}
+            </span>
+          ) : !isParseError ? (
             <span className={`target-chip target-chip--${target}`}>
               {targetLabel}
             </span>
@@ -236,12 +256,29 @@ export function ProposalCard({
                 </div>
               )}
             </>
+          ) : isQty ? (
+            <QtyBody
+              proposal={proposal}
+              busy={busy}
+              pending={pending}
+              pastDay={pastDay}
+              qtyText={qtyText}
+              setQtyText={setQtyText}
+              rejectOpen={rejectOpen}
+              setRejectOpen={setRejectOpen}
+              otherNote={otherNote}
+              setOtherNote={setOtherNote}
+              onAccept={onAccept}
+              onReject={onReject}
+            />
           ) : (
             <>
-              <div className={`target-banner target-banner--${target}`}>
-                <span className="target-banner__k">Applies</span>
-                <span className="target-banner__v">{targetLabel}</span>
-              </div>
+              {!kindChip ? (
+                <div className={`target-banner target-banner--${target}`}>
+                  <span className="target-banner__k">Applies</span>
+                  <span className="target-banner__v">{targetLabel}</span>
+                </div>
+              ) : null}
 
               {conf === "low" ? (
                 <p className="proposal-card__warn" role="note">
@@ -338,6 +375,131 @@ export function ProposalCard({
   );
 }
 
+/** qty_draft / morning_qty: show the working, let the chef type the qty. */
+function QtyBody({
+  proposal,
+  busy,
+  pending,
+  pastDay,
+  qtyText,
+  setQtyText,
+  rejectOpen,
+  setRejectOpen,
+  otherNote,
+  setOtherNote,
+  onAccept,
+  onReject,
+}: {
+  proposal: ProposalOut;
+  busy?: boolean;
+  pending: boolean;
+  pastDay: boolean;
+  qtyText: string;
+  setQtyText: (s: string) => void;
+  rejectOpen: boolean;
+  setRejectOpen: (v: boolean) => void;
+  otherNote: string;
+  setOtherNote: (s: string) => void;
+  onAccept: (p: ProposalOut, overlay?: Record<string, unknown>) => void;
+  onReject: (p: ProposalOut, reason: string) => void;
+}) {
+  const prop = (proposal.proposal ?? {}) as Record<string, unknown>;
+  const working = typeof prop.working === "string" ? prop.working : "";
+  const unit = typeof prop.unit === "string" ? prop.unit : "";
+  const clock = typeof prop.clock_time === "string" ? prop.clock_time : "";
+  const proposed = prop.planned_qty;
+  const n = Number(qtyText);
+  const qtyOk = qtyText.trim() !== "" && Number.isFinite(n) && n >= 0;
+  const inputId = `qty-${proposal.id}`;
+
+  return (
+    <div className="proposal-card__qty">
+      <p className="proposal-card__rationale">
+        {proposed != null
+          ? `Suggested ${formatDecimal(proposed as number)}${unit ? ` ${unit}` : ""}`
+          : "No suggestion yet — enter how many you need."}
+        {clock ? ` · ready by ${clock}` : ""}
+      </p>
+      {working ? <p className="board-row__meta">{working}</p> : null}
+      {pastDay ? (
+        <p className="proposal-card__warn" role="note">
+          This is for a past service day — probably safe to reject.
+        </p>
+      ) : null}
+
+      {pending && !rejectOpen ? (
+        <>
+          <label className="field__label" htmlFor={inputId}>
+            Planned qty{unit ? ` (${unit})` : ""}
+          </label>
+          <div className="quick-add__row">
+            <input
+              id={inputId}
+              className="field__input"
+              inputMode="decimal"
+              value={qtyText}
+              onChange={(e) => setQtyText(e.target.value)}
+            />
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || !qtyOk}
+              onClick={() =>
+                onAccept(proposal, {
+                  planned_qty: n,
+                  working:
+                    proposed != null && Number(proposed) === n
+                      ? working
+                      : "chef set in inbox",
+                })
+              }
+            >
+              Set
+            </button>
+          </div>
+          <div className="board-line__checks">
+            <button
+              type="button"
+              className="chip chip--danger"
+              disabled={busy}
+              onClick={() => setRejectOpen(true)}
+            >
+              Reject
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {pending && rejectOpen ? (
+        <RejectPanel
+          busy={busy}
+          otherNote={otherNote}
+          setOtherNote={setOtherNote}
+          onCancel={() => setRejectOpen(false)}
+          onReject={(reason) => {
+            onReject(proposal, reason);
+            setRejectOpen(false);
+          }}
+        />
+      ) : null}
+
+      {proposal.status === "accepted" ? (
+        <p className="board-row__meta">
+          Set to {formatDecimal(proposed as number | null)}
+          {unit ? ` ${unit}` : ""}
+          {proposal.decided_at ? ` · ${relativeAge(proposal.decided_at)}` : ""}
+        </p>
+      ) : null}
+      {proposal.status === "rejected" ? (
+        <p className="board-row__meta">
+          Rejected{proposal.reject_reason ? `: ${proposal.reject_reason}` : ""}
+          {proposal.decided_at ? ` · ${relativeAge(proposal.decided_at)}` : ""}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function RejectPanel({
   busy,
   otherNote,
@@ -361,9 +523,7 @@ function RejectPanel({
             <button
               key={r}
               type="button"
-              className={`chip chip--danger${
-                r === "wrong scope" ? " chip--scope" : ""
-              }`}
+              className={`chip chip--danger${r === "wrong scope" ? " chip--scope" : ""}`}
               disabled={busy}
               onClick={() => {
                 if (r === "other") {
