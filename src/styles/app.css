@@ -2345,3 +2345,11 @@
   border-style: solid;
   border-color: var(--border);
 }
+
+/* Meta-styled text that wraps (qty working, order footer) */
+.proposal-card__note {
+  margin: 0;
+  font-size: var(--fs-label);
+  color: var(--comment);
+  line-height: 1.35;
+}

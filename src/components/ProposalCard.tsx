@@ -4,7 +4,9 @@ import { PROPOSAL_REJECT_LABELS, PROPOSAL_REJECT_REASONS } from "@/contract";
 import { formatDecimal } from "@/lib/decimal";
 import { todayServiceDate } from "@/lib/dates";
 import {
+  isPastDayProposal,
   isQtyProposal,
+  orderLinesOf,
   proposalContextLabel,
   proposalKindChip,
   proposalServiceDate,
@@ -16,6 +18,8 @@ import {
   relativeAge,
   targetConfidenceOf,
 } from "@/lib/proposalTarget";
+
+const ORDER_LINES_SHOWN = 12;
 
 type Props = {
   proposal: ProposalOut;
@@ -69,7 +73,8 @@ export function ProposalCard({
   const title = proposalTitle(proposal);
   const ctxLabel = proposalContextLabel(proposal);
   const serviceDate = proposalServiceDate(proposal);
-  const pastDay = serviceDate != null && serviceDate < todayServiceDate();
+  const pastDay = isPastDayProposal(proposal);
+  const orderLines = orderLinesOf(proposal);
   const { main: rationaleMain, audit } = rationaleDisplay(
     proposal.rationale || "",
   );
@@ -318,6 +323,41 @@ export function ProposalCard({
                 </ul>
               ) : null}
 
+              {orderLines.length > 0 ? (
+                <>
+                  <ul className="proposal-card__comps">
+                    {orderLines.slice(0, ORDER_LINES_SHOWN).map((l, i) => (
+                      <li key={i} className="proposal-card__comp">
+                        <span className="num num--proposed">
+                          {formatDecimal(
+                            (l.packs as number | string | null | undefined) ??
+                              null,
+                          )}
+                        </span>
+                        <span>
+                          {String(l.name ?? `item ${String(l.item_id ?? "")}`)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {orderLines.length > ORDER_LINES_SHOWN ||
+                  showExpandedAccept ? (
+                    <p className="proposal-card__note">
+                      {[
+                        orderLines.length > ORDER_LINES_SHOWN
+                          ? `+${orderLines.length - ORDER_LINES_SHOWN} more`
+                          : "",
+                        showExpandedAccept
+                          ? "Accept adds these packs to draft orders — nothing is sent."
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                </>
+              ) : null}
+
               {proposal.status === "rejected" && proposal.reject_reason ? (
                 <p className="board-row__meta">
                   Rejected: {proposal.reject_reason}
@@ -420,7 +460,7 @@ function QtyBody({
           : "No suggestion yet — enter how many you need."}
         {clock ? ` · ready by ${clock}` : ""}
       </p>
-      {working ? <p className="board-row__meta">{working}</p> : null}
+      {working ? <p className="proposal-card__note">{working}</p> : null}
       {pastDay ? (
         <p className="proposal-card__warn" role="note">
           This is for a past service day — probably safe to reject.

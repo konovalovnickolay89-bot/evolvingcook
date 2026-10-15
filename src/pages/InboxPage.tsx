@@ -9,8 +9,7 @@ import {
 import type { ProposalOut } from "@/api/types";
 import { ProposalCard } from "@/components/ProposalCard";
 import { EmptyState, LoadingState } from "@/components/AppShell";
-import { todayServiceDate } from "@/lib/dates";
-import { proposalServiceDate } from "@/lib/proposalTarget";
+import { isPastDayProposal } from "@/lib/proposalTarget";
 
 /** Presentation: To review / Done — not raw status enums */
 type Filter = "review" | "done";
@@ -21,12 +20,6 @@ type Props = {
 
 function isParseErrorCard(p: ProposalOut): boolean {
   return Boolean(p.parse_error?.trim());
-}
-
-/** Belongs to a service day that's already gone — nothing left to act on. */
-function isPastDay(p: ProposalOut): boolean {
-  const d = proposalServiceDate(p);
-  return d != null && d < todayServiceDate();
 }
 
 export function InboxPage({ onBack }: Props) {
@@ -71,8 +64,8 @@ export function InboxPage({ onBack }: Props) {
   }, [q.data, filter]);
 
   const current =
-    filter === "review" ? list.filter((p) => !isPastDay(p)) : list;
-  const past = filter === "review" ? list.filter(isPastDay) : [];
+    filter === "review" ? list.filter((p) => !isPastDayProposal(p)) : list;
+  const past = filter === "review" ? list.filter(isPastDayProposal) : [];
   const [clearing, setClearing] = useState(false);
 
   async function rejectPast() {
