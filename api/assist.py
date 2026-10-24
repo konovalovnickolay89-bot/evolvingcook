@@ -19,8 +19,10 @@ from ninja import Router, Schema
 
 from api.auth import BearerAuth
 from api.types import DecimalQty
-from assist import companion
+from assist import companion, kitchen
 from assist.models import AssistJob, AssistProposal
+from catalog.ingest import IngestError, propose_from_upload, store_raw_upload
+from catalog.models import CatalogIngestUpload
 from assist.services import (
     AssistError,
     accept_assist_proposal,
@@ -262,14 +264,19 @@ class ChatOut(Schema):
 
 
 class BriefTipOut(Schema):
+    id: str = ""
     title: str = ""
-    body: str
+    body: str = ""
+    source: str = ""
+    created_at: str | None = None
+    resolved_at: str | None = None
 
 
 class BriefOut(Schema):
     service_date: str
     generated_at: str
     model: str
+    mode: str = "manual"
     tips: list[BriefTipOut]
 
 
@@ -320,3 +327,223 @@ def get_companion_profile(request: HttpRequest):
 @router.put("/companion-profile", response=ProfileOut)
 def put_companion_profile(request: HttpRequest, body: ProfileIn):
     return 200, companion.set_profile(body.text)
+
+
+def _companion_http(exc: companion.CompanionError) -> int:
+    if exc.code == "not_found":
+        return 404
+    if exc.code == "bad_request":
+        return 400
+    return 503
+
+
+class TipIn(Schema):
+    title: str = ""
+    body: str = ""
+    source: str = "typed"
+
+
+class TipEditIn(Schema):
+    title: str | None = None
+    body: str | None = None
+
+
+class OkOut(Schema):
+    ok: bool = True
+    id: str = ""
+
+
+@router.post(
+    "/daily-brief/tips",
+    response={201: BriefTipOut, 400: ErrorOut},
+)
+def add_brief_tip(request: HttpRequest, body: TipIn):
+    try:
+        return 201, companion.add_manual_tip(
+            title=body.title, body=body.body, source=body.source
+        )
+    except companion.CompanionError as exc:
+        return _companion_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+@router.patch(
+    "/daily-brief/tips/{tip_id}",
+    response={200: BriefTipOut, 400: ErrorOut, 404: ErrorOut},
+)
+def edit_brief_tip(request: HttpRequest, tip_id: str, body: TipEditIn):
+    try:
+        return 200, companion.edit_manual_tip(
+            tip_id, title=body.title, body=body.body
+        )
+    except companion.CompanionError as exc:
+        return _companion_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+@router.delete(
+    "/daily-brief/tips/{tip_id}",
+    response={200: OkOut, 404: ErrorOut},
+)
+def delete_brief_tip(request: HttpRequest, tip_id: str):
+    try:
+        removed = companion.delete_manual_tip(tip_id)
+    except companion.CompanionError as exc:
+        return _companion_http(exc), {"detail": str(exc), "code": exc.code}
+    return 200, {"ok": True, "id": removed["id"]}
+
+
+@router.post(
+    "/daily-brief/tips/{tip_id}/resolve",
+    response={200: BriefTipOut, 404: ErrorOut},
+)
+def resolve_brief_tip(request: HttpRequest, tip_id: str):
+    try:
+        return 200, companion.resolve_manual_tip(tip_id)
+    except companion.CompanionError as exc:
+        return _companion_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+@router.post("/daily-brief/clear", response={200: BriefOut})
+def clear_brief_tips(request: HttpRequest):
+    return 200, companion.clear_manual_tips()
+
+
+class KitchenNoteIn(Schema):
+    title: str = ""
+    body: str = ""
+    source: str = "typed"
+
+
+class KitchenNoteOut(Schema):
+    id: int
+    title: str = ""
+    body: str
+    source: str
+    created_at: str | None = None
+    resolved_at: str | None = None
+
+
+class KitchenInboxOut(Schema):
+    id: int
+    kind: str
+    summary: str = ""
+    assist_proposal_id: int | None = None
+    catalog_proposal_id: int | None = None
+    created_at: str | None = None
+    resolved_at: str | None = None
+
+
+def _kitchen_http(exc: kitchen.KitchenError) -> int:
+    if exc.code == "not_found":
+        return 404
+    return 400
+
+
+@router.get("/kitchen-notes", response=list[KitchenNoteOut])
+def get_kitchen_notes(request: HttpRequest, include_resolved: bool = False):
+    return 200, kitchen.list_kitchen_notes(include_resolved=include_resolved)
+
+
+@router.post(
+    "/kitchen-notes",
+    response={201: KitchenNoteOut, 400: ErrorOut},
+)
+def post_kitchen_note(request: HttpRequest, body: KitchenNoteIn):
+    try:
+        return 201, kitchen.add_kitchen_note(
+            title=body.title, body=body.body, source=body.source
+        )
+    except kitchen.KitchenError as exc:
+        return _kitchen_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+@router.post(
+    "/kitchen-notes/{note_id}/resolve",
+    response={200: KitchenNoteOut, 404: ErrorOut},
+)
+def post_resolve_kitchen_note(request: HttpRequest, note_id: int):
+    try:
+        return 200, kitchen.resolve_kitchen_note(note_id)
+    except kitchen.KitchenError as exc:
+        return _kitchen_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+@router.get("/kitchen-inbox", response=list[KitchenInboxOut])
+def get_kitchen_inbox(request: HttpRequest, include_resolved: bool = False):
+    return 200, kitchen.list_kitchen_inbox(include_resolved=include_resolved)
+
+
+@router.post(
+    "/kitchen-inbox/{item_id}/resolve",
+    response={200: KitchenInboxOut, 404: ErrorOut},
+)
+def post_resolve_kitchen_inbox(request: HttpRequest, item_id: int):
+    try:
+        return 200, kitchen.resolve_kitchen_inbox_item(item_id)
+    except kitchen.KitchenError as exc:
+        return _kitchen_http(exc), {"detail": str(exc), "code": exc.code}
+
+
+class InvoiceUploadIn(Schema):
+    raw_text: str
+    source_kind: str = "text"
+
+
+class InvoiceUploadOut(Schema):
+    id: int
+    status: str
+    source_kind: str
+    created_at: str
+    proposal_count: int
+    propose_requested: bool
+
+
+class ProposeOut(Schema):
+    id: int
+    status: str
+    queued: bool
+    task_id: str = ""
+
+
+def _upload_out(upload: CatalogIngestUpload) -> dict:
+    return {
+        "id": upload.pk,
+        "status": upload.status,
+        "source_kind": upload.source_kind,
+        "created_at": timezone.localtime(upload.created_at).isoformat(),
+        "proposal_count": upload.proposals.count(),
+        "propose_requested": upload.propose_requested_at is not None,
+    }
+
+
+@router.post(
+    "/invoice-uploads",
+    response={201: InvoiceUploadOut, 400: ErrorOut},
+    summary="Store invoice or sheet text as raw data. Does not call a model.",
+)
+def create_invoice_upload(request: HttpRequest, body: InvoiceUploadIn):
+    try:
+        upload = store_raw_upload(raw_text=body.raw_text, source_kind=body.source_kind)
+    except IngestError as exc:
+        return 400, {"detail": str(exc), "code": exc.code}
+    return 201, _upload_out(upload)
+
+
+@router.post(
+    "/invoice-uploads/{upload_id}/propose",
+    response={202: ProposeOut, 400: ErrorOut, 404: ErrorOut},
+    summary="Explicit propose from one stored upload. Not run on upload.",
+)
+def propose_invoice_upload(request: HttpRequest, upload_id: int):
+    try:
+        task_id = propose_from_upload(upload_id)
+    except CatalogIngestUpload.DoesNotExist:
+        return 404, {"detail": "Upload not found.", "code": "not_found"}
+    except IngestError as exc:
+        return 400, {"detail": str(exc), "code": exc.code}
+    upload = CatalogIngestUpload.objects.get(pk=upload_id)
+    return 202, {
+        "id": upload.pk,
+        "status": upload.status,
+        "queued": True,
+        "task_id": task_id,
+    }

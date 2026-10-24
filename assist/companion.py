@@ -1,9 +1,13 @@
 """
-Kitchen companion — context-aware chat + cached daily brief (D16).
+Kitchen companion — context-aware chat + standing manual daily brief (D16).
 
-Rides the D10 Mistral gateway (catalog.llm_provider); no SDK, no new env.
-Context is READ-ONLY: today's boards, station logs and pending proposals.
-The companion returns advice text only — it never writes domain state.
+Chat rides the D10 Mistral gateway (catalog.llm_provider); no SDK, no new env.
+The daily brief does not. It shows only tips the chef added (typed, voice, or
+banto) and keeps unresolved ones until they are cleared or resolved. A
+dashboard poll never calls the model to fill an empty brief.
+
+Chat context is READ-ONLY: today's boards, station logs and pending proposals.
+The companion chat returns advice text only — it never writes domain state.
 """
 from __future__ import annotations
 
@@ -11,10 +15,12 @@ import ast
 import json
 import os
 import re
+import uuid
 from datetime import date
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from assist.models import AssistProposal, CompanionBrief, CompanionProfile
@@ -66,6 +72,9 @@ REPLY_FORMAT = (
     "between sections. No tables, no code blocks, no JSON inside the reply."
 )
 
+# Retired for the daily brief. The brief is manual and must not be filled
+# from the day snapshot, menu tags, invoices, or proposal queues. Do not
+# call this from daily_brief, from refresh=true, or from a dashboard poll.
 BRIEF_PROMPT = (
     "From the day snapshot, write 3 to 5 tips for this chef's shift today. "
     "Each tip is one practical, specific action or reminder grounded in the "
@@ -74,6 +83,16 @@ BRIEF_PROMPT = (
     "if the snapshot is thin, give seasoned kitchen habits for that weekday "
     "instead. No fluff, no repetition of the obvious."
 )
+
+# One standing row holds manual tips. service_date here is not a service
+# day — unresolved tips are shown on every date until resolved or deleted.
+# Per-date rows with mode=manual still contribute (carry-over); rows without
+# mode=manual are old model caches and are never returned or regenerated.
+STANDING_BRIEF_DATE = date(1970, 1, 1)
+MANUAL_MODE = "manual"
+TIP_SOURCES = frozenset({"typed", "voice", "banto"})
+MAX_TIP_TITLE = 200
+MAX_TIP_BODY = 4000
 
 
 _UNWRAP_KEYS = {"reply", "answer", "text", "message", "content"}
@@ -175,7 +194,12 @@ def get_profile() -> dict[str, Any]:
 
 
 def set_profile(text: str) -> dict[str, Any]:
-    """Save the house profile; today's cached brief re-grounds on next load."""
+    """Save the house profile.
+
+    The daily brief is a standing manual list. Saving the profile must not
+    delete it: a missing brief used to be filled by the model on the next
+    dashboard poll, and that path is closed.
+    """
     clean = (text or "").strip()[:MAX_PROFILE_CHARS]
     row, created = CompanionProfile.objects.get_or_create(
         singleton=True, defaults={"text": clean}
@@ -183,7 +207,6 @@ def set_profile(text: str) -> dict[str, Any]:
     if not created and row.text != clean:
         row.text = clean
         row.save(update_fields=["text", "updated_at"])
-    CompanionBrief.objects.filter(service_date=timezone.localdate()).delete()
     return get_profile()
 
 
@@ -383,48 +406,215 @@ def companion_chat(
     return {"reply": reply, "model": model}
 
 
-def daily_brief(service_date: date, refresh: bool = False) -> dict[str, Any]:
-    """Cached per-date tips. Regenerates only on refresh=true."""
-    cached = CompanionBrief.objects.filter(service_date=service_date).first()
-    if cached and not refresh:
-        return _brief_out(cached)
-
-    user_text = json.dumps(
-        {
-            "day_snapshot": build_day_context(service_date),
-            "house_profile": get_profile()["text"] or None,
-            "task": BRIEF_PROMPT,
-            "respond_with": {"tips": [{"title": "string", "body": "string"}]},
-        },
-        ensure_ascii=False,
-    )
-    try:
-        data, model = _call(SYSTEM_PROMPT, user_text)
-    except CompanionError:
-        if cached:  # stale beats silent when the provider hiccups on refresh
-            return _brief_out(cached)
-        raise
-    tips = [
-        {"title": _as_text(t.get("title")), "body": _as_text(t.get("body"))}
-        for t in (data.get("tips") or [])
-        if isinstance(t, dict) and _as_text(t.get("body"))
-    ][:5]
-    if not tips:
-        raise CompanionError("Companion returned no tips.")
-    brief, _ = CompanionBrief.objects.update_or_create(
-        service_date=service_date,
-        defaults={"payload": {"tips": tips}, "model": model},
-    )
-    return _brief_out(brief)
+def _now_iso() -> str:
+    return timezone.localtime(timezone.now()).isoformat()
 
 
-def _brief_out(brief: CompanionBrief) -> dict[str, Any]:
+def _payload_tips(brief: CompanionBrief) -> tuple[dict[str, Any], list]:
+    payload = brief.payload if isinstance(brief.payload, dict) else {}
+    tips = payload.get("tips")
+    if not isinstance(tips, list):
+        tips = []
+    return payload, tips
+
+
+def _tip_out(tip: dict[str, Any]) -> dict[str, Any]:
     return {
-        "service_date": brief.service_date.isoformat(),
-        "generated_at": timezone.localtime(brief.updated_at).isoformat(),
-        "model": brief.model,
-        "tips": list((brief.payload or {}).get("tips", [])),
+        "id": str(tip.get("id") or ""),
+        "title": str(tip.get("title") or ""),
+        "body": str(tip.get("body") or ""),
+        "source": str(tip.get("source") or "typed"),
+        "created_at": tip.get("created_at"),
+        "resolved_at": tip.get("resolved_at"),
     }
+
+
+def _open_manual_tips() -> list[dict[str, Any]]:
+    """Unresolved manual tips from every brief row, oldest first.
+
+    A tip with resolved_at set is hidden. Rows that are not mode=manual
+    (old model caches) are ignored — they are not regenerated.
+    """
+    seen: set[str] = set()
+    found: list[dict[str, Any]] = []
+    for brief in CompanionBrief.objects.all().only("payload"):
+        payload, tips = _payload_tips(brief)
+        if payload.get("mode") != MANUAL_MODE:
+            continue
+        for tip in tips:
+            if not isinstance(tip, dict) or tip.get("resolved_at"):
+                continue
+            out = _tip_out(tip)
+            if out["id"] and out["id"] in seen:
+                continue
+            if out["id"]:
+                seen.add(out["id"])
+            if not out["title"] and not out["body"]:
+                continue
+            found.append(out)
+    found.sort(key=lambda t: (str(t.get("created_at") or ""), t.get("id") or ""))
+    return found
+
+
+def _save_manual_tips(
+    brief: CompanionBrief, payload: dict[str, Any], tips: list
+) -> None:
+    stored = dict(payload)
+    stored["mode"] = MANUAL_MODE
+    stored["tips"] = tips
+    brief.payload = stored
+    brief.model = ""
+    brief.save(update_fields=["payload", "model", "updated_at"])
+
+
+def _standing_brief_locked() -> CompanionBrief:
+    brief, _created = CompanionBrief.objects.select_for_update().get_or_create(
+        service_date=STANDING_BRIEF_DATE,
+        defaults={"payload": {"mode": MANUAL_MODE, "tips": []}, "model": ""},
+    )
+    return brief
+
+
+def _locked_manual_hit(
+    tip_id: str,
+) -> tuple[CompanionBrief, dict[str, Any], list, int] | None:
+    for brief in CompanionBrief.objects.select_for_update().order_by("id"):
+        payload, tips = _payload_tips(brief)
+        if payload.get("mode") != MANUAL_MODE:
+            continue
+        for index, tip in enumerate(tips):
+            if isinstance(tip, dict) and str(tip.get("id") or "") == tip_id:
+                return brief, payload, tips, index
+    return None
+
+
+def _check_source(source: str) -> str:
+    clean = (source or "typed").strip().lower()
+    if clean not in TIP_SOURCES:
+        raise CompanionError(
+            "Source must be typed, voice, or banto.",
+            code="bad_request",
+        )
+    return clean
+
+
+def _check_tip_text(title: str, body: str) -> tuple[str, str]:
+    title = (title or "").strip()[:MAX_TIP_TITLE]
+    body = (body or "").strip()[:MAX_TIP_BODY]
+    if not title and not body:
+        raise CompanionError(
+            "A tip needs a title or some text.",
+            code="bad_request",
+        )
+    return title, body
+
+
+def daily_brief(service_date: date, refresh: bool = False) -> dict[str, Any]:
+    """Standing manual tips for any service date.
+
+    ``refresh`` is accepted so the existing dashboard poll keeps working.
+    It does not call the model and does not overwrite stored tips.
+    An empty list is a valid brief. This function does not write.
+    """
+    del refresh  # explicit no-op — never a regenerate
+    standing = CompanionBrief.objects.filter(service_date=STANDING_BRIEF_DATE).first()
+    latest = standing or CompanionBrief.objects.order_by("-updated_at").first()
+    when = latest.updated_at if latest is not None else timezone.now()
+    return {
+        "service_date": service_date.isoformat(),
+        "generated_at": timezone.localtime(when).isoformat(),
+        "model": "",
+        "mode": MANUAL_MODE,
+        "tips": _open_manual_tips(),
+    }
+
+
+def add_manual_tip(*, title: str = "", body: str = "", source: str = "typed") -> dict[str, Any]:
+    """Append one standing tip. Shown every day until resolved or deleted."""
+    source = _check_source(source)
+    title, body = _check_tip_text(title, body)
+    tip = {
+        "id": uuid.uuid4().hex,
+        "title": title,
+        "body": body,
+        "source": source,
+        "created_at": _now_iso(),
+        "resolved_at": None,
+    }
+    with transaction.atomic():
+        brief = _standing_brief_locked()
+        payload, tips = _payload_tips(brief)
+        tips.append(tip)
+        _save_manual_tips(brief, payload, tips)
+    return _tip_out(tip)
+
+
+def edit_manual_tip(
+    tip_id: str, *, title: str | None = None, body: str | None = None
+) -> dict[str, Any]:
+    if title is None and body is None:
+        raise CompanionError("Nothing to change on this tip.", code="bad_request")
+    with transaction.atomic():
+        hit = _locked_manual_hit(tip_id)
+        if hit is None:
+            raise CompanionError("Tip not found.", code="not_found")
+        brief, payload, tips, index = hit
+        current = dict(tips[index])
+        new_title = current.get("title") if title is None else title
+        new_body = current.get("body") if body is None else body
+        new_title, new_body = _check_tip_text(str(new_title or ""), str(new_body or ""))
+        current["title"] = new_title
+        current["body"] = new_body
+        tips[index] = current
+        _save_manual_tips(brief, payload, tips)
+    return _tip_out(current)
+
+
+def delete_manual_tip(tip_id: str) -> dict[str, Any]:
+    with transaction.atomic():
+        hit = _locked_manual_hit(tip_id)
+        if hit is None:
+            raise CompanionError("Tip not found.", code="not_found")
+        brief, payload, tips, index = hit
+        removed = _tip_out(tips.pop(index))
+        _save_manual_tips(brief, payload, tips)
+    return removed
+
+
+def resolve_manual_tip(tip_id: str) -> dict[str, Any]:
+    """Hide a tip on every day. The row stays, with resolved_at set."""
+    with transaction.atomic():
+        hit = _locked_manual_hit(tip_id)
+        if hit is None:
+            raise CompanionError("Tip not found.", code="not_found")
+        brief, payload, tips, index = hit
+        current = dict(tips[index])
+        if not current.get("resolved_at"):
+            current["resolved_at"] = _now_iso()
+            tips[index] = current
+            _save_manual_tips(brief, payload, tips)
+    return _tip_out(current)
+
+
+def clear_manual_tips() -> dict[str, Any]:
+    """Resolve every open manual tip. Does not call the model."""
+    now = _now_iso()
+    with transaction.atomic():
+        for brief in CompanionBrief.objects.select_for_update().order_by("id"):
+            payload, tips = _payload_tips(brief)
+            if payload.get("mode") != MANUAL_MODE:
+                continue
+            changed = False
+            updated: list = []
+            for tip in tips:
+                if isinstance(tip, dict) and not tip.get("resolved_at"):
+                    tip = dict(tip)
+                    tip["resolved_at"] = now
+                    changed = True
+                updated.append(tip)
+            if changed:
+                _save_manual_tips(brief, payload, updated)
+    return daily_brief(timezone.localdate())
 
 
 RECIPE_TASK = (

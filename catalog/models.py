@@ -321,7 +321,12 @@ class ParLevel(models.Model):
 
 
 class CatalogIngestUpload(models.Model):
-    """Photo/text/csv upload → django-q2 → Mistral → proposal rows → accept."""
+    """Photo/text/csv upload stored as raw data.
+
+    Saving an upload does not call a model and does not create proposals.
+    Proposals are created only after an explicit propose request
+    (``propose_requested_at`` set). The worker refuses otherwise.
+    """
 
     class SourceKind(models.TextChoices):
         TEXT = "text", "Text"
@@ -357,6 +362,8 @@ class CatalogIngestUpload(models.Model):
     error = models.TextField(blank=True, default="")
     q_task_id = models.CharField(max_length=64, blank=True, default="")
     model_name = models.CharField(max_length=128, blank=True, default="")
+    # Empty until someone explicitly asks to propose from this upload.
+    propose_requested_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

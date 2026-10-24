@@ -15,20 +15,36 @@ systemctl --user is-active evolving-cook-django.service evolving-cook-qcluster.s
 journalctl --user -u evolving-cook-qcluster.service -f
 ```
 
+## Store raw, propose only when asked
+
+Saving an upload (admin or `POST /api/v1/assist/invoice-uploads`) writes the
+text or photo and **stops**. It does not queue Mistral, and it does not
+create `CatalogIngestProposal` or `AssistProposal` rows. The worker also
+refuses a job whose upload has `propose_requested_at` empty, so a stray
+background task cannot invent proposals.
+
+Proposals start only from an explicit request:
+
+- `POST /api/v1/assist/invoice-uploads/{id}/propose` (companion / Bantō), or
+- Django admin action **Propose from selected uploads**, or
+- `propose_from_upload(upload_id)` in a shell you meant to run.
+
+That sets `propose_requested_at` and then queues the existing extraction job.
+
 ## Queue extraction (operator)
 
 1. Django admin → **Catalog ingest uploads**
-2. Add upload: `source_kind=text` + paste sheet lines, **or** photo JPEG/PNG/WebP
-3. Select row(s) → action **Queue extraction job (django-q2 → Mistral)** → Go
+2. Add upload: `source_kind=text` + paste sheet lines, **or** photo JPEG/PNG/WebP. Leave it. Status stays `pending`. No proposals yet.
+3. When you actually want lines reviewed: select row(s) → action **Propose from selected uploads (explicit Mistral call — not run on save)** → Go
 4. Status path: `pending` → `queued` → `running` → **`review`** (success) or `failed`
-5. Review **Catalog ingest proposals** — accept/reject is **human only** (LLM never writes Item)
+5. Review **Catalog ingest proposals** — accept/reject is **human only** (LLM never writes Item). New proposal rows also get a `KitchenInboxItem` pointer. They are not copied into the daily brief.
 
 Equivalent service call (shell, after `set -a; source .env; set +a`):
 
 ```bash
 cd ~/src/evolving-cook
 . .venv/bin/activate
-python manage.py shell -c "from catalog.ingest import queue_ingest_extraction; print(queue_ingest_extraction(<upload_id>))"
+python manage.py shell -c "from catalog.ingest import propose_from_upload; print(propose_from_upload(<upload_id>))"
 ```
 
 ## Failure modes
