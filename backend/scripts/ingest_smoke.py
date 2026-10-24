@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Smoke: create text CatalogIngestUpload, queue extraction, wait for review.
+"""Smoke: store raw text, then explicitly propose, and wait for review.
 
-Does not accept proposals. Never prints secrets.
+Upload alone does not queue a model call. This script is the deliberate
+propose step. Does not accept proposals. Never prints secrets.
 Usage: from repo root with venv:
   .venv/bin/python scripts/ingest_smoke.py
 """
@@ -21,7 +22,7 @@ import django
 
 django.setup()
 
-from catalog.ingest import queue_ingest_extraction  # noqa: E402
+from catalog.ingest import propose_from_upload  # noqa: E402
 from catalog.models import CatalogIngestProposal, CatalogIngestUpload  # noqa: E402
 
 
@@ -42,7 +43,7 @@ def main() -> int:
         status=CatalogIngestUpload.Status.PENDING,
     )
     print(f"upload_id={up.id}")
-    task_id = queue_ingest_extraction(up.id)
+    task_id = propose_from_upload(up.id)
     up.refresh_from_db()
     print(f"queued task_id={task_id} status={up.status}")
 

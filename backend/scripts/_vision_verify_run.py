@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 django.setup()
 
 from django.core.files import File  # noqa: E402
-from catalog.ingest import queue_ingest_extraction  # noqa: E402
+from catalog.ingest import propose_from_upload  # noqa: E402
 from catalog.models import CatalogIngestUpload  # noqa: E402
 
 SRC = Path(
@@ -33,7 +33,7 @@ def main() -> None:
     with SRC.open("rb") as f:
         u.image.save(SRC.name, File(f), save=True)
     print("upload_id", u.id, "status", u.status, "image", u.image.name)
-    res = queue_ingest_extraction(u.id)
+    res = propose_from_upload(u.id)
     print("queue_result", res)
     u.refresh_from_db()
     print(
