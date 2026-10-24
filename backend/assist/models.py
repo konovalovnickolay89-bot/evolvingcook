@@ -136,7 +136,13 @@ class IntelligenceAssignment(models.Model):
 
 
 class CompanionBrief(models.Model):
-    """D16 — cached companion daily brief; one row per service date."""
+    """D16 — companion daily brief.
+
+    Manual tips live in payload: ``{"mode": "manual", "tips": [...]}``.
+    The standing list uses service_date 1970-01-01 (not a service day).
+    Unresolved tips (resolved_at null) are shown on every date. The brief
+    is never filled by the model.
+    """
 
     service_date = models.DateField(unique=True, db_index=True)
     payload = models.JSONField(default=dict, blank=True)
@@ -160,3 +166,91 @@ class CompanionProfile(models.Model):
 
     def __str__(self) -> str:
         return f"CompanionProfile ({len(self.text)} chars)"
+
+
+class KitchenNote(models.Model):
+    """Standing kitchen note. Dictation and typed reminders — not a brief tip."""
+
+    class Source(models.TextChoices):
+        TYPED = "typed", "typed"
+        VOICE = "voice", "voice"
+        BANTO = "banto", "banto"
+
+    title = models.CharField(max_length=200, blank=True, default="")
+    body = models.TextField()
+    source = models.CharField(
+        max_length=16,
+        choices=Source.choices,
+        default=Source.TYPED,
+    )
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        label = self.title or self.body[:40]
+        return f"KitchenNote#{self.pk} {label}"
+
+
+class KitchenInboxItem(models.Model):
+    """Pointer from the kitchen store onto an existing proposal queue.
+
+    Assist parse_note proposals and catalogue ingest proposals are listed
+    here so they can be reviewed without being copied into the daily brief.
+    """
+
+    class Kind(models.TextChoices):
+        ASSIST = "assist_proposal", "assist_proposal"
+        CATALOG = "catalog_ingest_proposal", "catalog_ingest_proposal"
+
+    kind = models.CharField(max_length=32, choices=Kind.choices, db_index=True)
+    assist_proposal = models.ForeignKey(
+        AssistProposal,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="kitchen_inbox_items",
+    )
+    catalog_proposal = models.ForeignKey(
+        "catalog.CatalogIngestProposal",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="kitchen_inbox_items",
+    )
+    summary = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(default=timezone.now, db_index=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["assist_proposal"],
+                condition=models.Q(assist_proposal__isnull=False),
+                name="uniq_kitchen_inbox_assist_proposal",
+            ),
+            models.UniqueConstraint(
+                fields=["catalog_proposal"],
+                condition=models.Q(catalog_proposal__isnull=False),
+                name="uniq_kitchen_inbox_catalog_proposal",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        assist_proposal__isnull=False,
+                        catalog_proposal__isnull=True,
+                    )
+                    | models.Q(
+                        assist_proposal__isnull=True,
+                        catalog_proposal__isnull=False,
+                    )
+                ),
+                name="kitchen_inbox_one_target",
+            ),
+        ]
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"KitchenInbox#{self.pk} {self.kind}"

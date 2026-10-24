@@ -1,9 +1,15 @@
 """
-ingest_catalog: upload → django-q2 → LLM strict-JSON → review proposals.
+ingest_catalog: raw upload stored as-is. Proposals only on an explicit ask.
 
 Provider: Mistral (D10) via catalog.llm_provider — OpenAI-compatible httpx, no SDK.
-If MISTRAL_API_KEY is missing: job fails with the env name — never fake catalogue.
-LLM writes proposal rows only; accept handler writes Item+SupplierItem.
+Saving an upload does not call the model and does not create proposal rows.
+``propose_from_upload`` is the deliberate path (companion API or admin action).
+The worker refuses when ``propose_requested_at`` is empty, so a background
+job cannot invent proposals from an upload that was only stored.
+
+If MISTRAL_API_KEY is missing once propose was requested: job fails with the
+env name — never fake catalogue. LLM writes proposal rows only; accept
+handler writes Item+SupplierItem.
 """
 from __future__ import annotations
 
@@ -16,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 
 from catalog.llm_provider import (
     API_KEY_ENV,
@@ -30,6 +37,54 @@ logger = logging.getLogger(__name__)
 # Back-compat aliases for scripts/admin that may import old names during transition.
 mistral_key_present = api_key_present
 get_mistral_key = get_api_key
+
+_TEXT_KINDS = frozenset({"text", "csv"})
+
+
+class IngestError(RuntimeError):
+    def __init__(self, detail: str, code: str = "bad_request"):
+        super().__init__(detail)
+        self.code = code
+
+
+def store_raw_upload(*, raw_text: str = "", source_kind: str = "text"):
+    """Persist invoice or sheet text. Never calls the model or creates proposals."""
+    from catalog.models import CatalogIngestUpload
+
+    kind = (source_kind or "text").strip().lower()
+    if kind not in _TEXT_KINDS:
+        raise IngestError("Source kind must be text or csv.")
+    text = (raw_text or "").strip()
+    if not text:
+        raise IngestError("Add the invoice text before saving.")
+    return CatalogIngestUpload.objects.create(
+        source_kind=kind,
+        raw_text=text,
+        status=CatalogIngestUpload.Status.PENDING,
+        error="",
+        q_task_id="",
+        model_name="",
+        propose_requested_at=None,
+    )
+
+
+def propose_from_upload(upload_id: int) -> str:
+    """Explicit request to turn one stored upload into review proposals.
+
+    This is the only path that may queue a model call for invoice content.
+    Upload itself never reaches here.
+    """
+    from catalog.models import CatalogIngestUpload
+
+    upload = CatalogIngestUpload.objects.get(pk=upload_id)
+    has_text = bool((upload.raw_text or "").strip())
+    has_image = bool(upload.image)
+    if not has_text and not has_image:
+        raise IngestError("This upload has no text or file to propose from.")
+    if upload.propose_requested_at is None:
+        upload.propose_requested_at = timezone.now()
+        upload.save(update_fields=["propose_requested_at"])
+    return queue_ingest_extraction(upload.pk)
 
 EXTRACTION_SYSTEM = """You extract kitchen catalogue lines from chef sheets/photos.
 Return JSON ONLY — no prose, no markdown fences.
@@ -71,12 +126,21 @@ Rules:
 
 
 def queue_ingest_extraction(upload_id: int) -> str:
-    """Enqueue django-q2 job. Returns task id. Does not call the LLM inline."""
+    """Enqueue django-q2 job. Returns task id. Does not call the LLM inline.
+
+    Refuses unless ``propose_from_upload`` has set ``propose_requested_at``.
+    A bare upload must not land on the worker.
+    """
     from django_q.tasks import async_task
 
     from catalog.models import CatalogIngestUpload
 
     upload = CatalogIngestUpload.objects.get(pk=upload_id)
+    if upload.propose_requested_at is None:
+        raise IngestError(
+            "Propose was not requested for this upload. It stays stored as raw data.",
+            code="propose_not_requested",
+        )
     task_id = async_task(
         "catalog.ingest.run_ingest_extraction",
         upload_id,
@@ -92,11 +156,32 @@ def queue_ingest_extraction(upload_id: int) -> str:
 def run_ingest_extraction(upload_id: int) -> dict[str, Any]:
     """
     django-q2 worker entrypoint.
+    Does nothing to the model unless propose was requested explicitly.
     Blocks live extraction when MISTRAL_API_KEY missing — never fakes rows.
     """
     from catalog.models import CatalogIngestProposal, CatalogIngestUpload
 
     upload = CatalogIngestUpload.objects.get(pk=upload_id)
+    if upload.propose_requested_at is None:
+        if upload.status in {
+            CatalogIngestUpload.Status.QUEUED,
+            CatalogIngestUpload.Status.RUNNING,
+        }:
+            upload.status = CatalogIngestUpload.Status.PENDING
+            upload.q_task_id = ""
+            upload.error = ""
+            upload.save(update_fields=["status", "q_task_id", "error"])
+        logger.info(
+            "ingest left raw upload_id=%s (propose not requested)", upload_id
+        )
+        return {
+            "ok": False,
+            "skipped": "propose_not_requested",
+            "error": (
+                "Upload kept as raw data. Proposals are created only when you ask."
+            ),
+        }
+
     upload.status = CatalogIngestUpload.Status.RUNNING
     upload.error = ""
     upload.save(update_fields=["status", "error"])

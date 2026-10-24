@@ -10,7 +10,7 @@ from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.db import transaction
 from django.shortcuts import redirect, render
 
-from catalog.ingest import queue_ingest_extraction
+from catalog.ingest import propose_from_upload
 from catalog.models import (
     CatalogIngestProposal,
     CatalogIngestUpload,
@@ -266,12 +266,14 @@ class CatalogIngestUploadAdmin(admin.ModelAdmin):
     inlines = (CatalogIngestProposalInline,)
     actions = ("queue_extraction",)
 
-    @admin.action(description="Queue extraction job (django-q2 → Mistral)")
+    @admin.action(
+        description="Propose from selected uploads (explicit Mistral call — not run on save)"
+    )
     def queue_extraction(self, request, queryset):
         ok = 0
         for upload in queryset:
             try:
-                queue_ingest_extraction(upload.pk)
+                propose_from_upload(upload.pk)
                 ok += 1
             except Exception as exc:  # noqa: BLE001
                 self.message_user(
@@ -282,7 +284,7 @@ class CatalogIngestUploadAdmin(admin.ModelAdmin):
         if ok:
             self.message_user(
                 request,
-                f"Queued {ok} upload(s). Requires qcluster worker + MISTRAL_API_KEY.",
+                f"Propose queued for {ok} upload(s). Requires qcluster worker + MISTRAL_API_KEY. Saving an upload does not do this.",
                 messages.SUCCESS,
             )
 

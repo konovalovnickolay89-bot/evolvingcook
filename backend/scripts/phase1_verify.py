@@ -13,6 +13,7 @@ django.setup()
 from decimal import Decimal
 
 from django.db import connection
+from django.utils import timezone
 from django.db.models import Exists, OuterRef, Q
 
 from catalog.ingest import api_key_present, run_ingest_extraction
@@ -78,6 +79,9 @@ def main() -> int:
     u = CatalogIngestUpload.objects.create(
         source_kind="text",
         raw_text="test olives OC174 BELAZU",
+        # Explicit propose, so this still proves the missing-key block.
+        # A raw upload with propose_requested_at empty never calls the model.
+        propose_requested_at=timezone.now(),
     )
     res = run_ingest_extraction(u.pk)
     u.refresh_from_db()

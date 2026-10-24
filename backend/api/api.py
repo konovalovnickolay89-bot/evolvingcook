@@ -57,6 +57,11 @@ api = NinjaAPI(
         "BoardOut carries section_mode, mode_prompt_needed, guided, mode_recommendation, prep_plan. "
         "Phase 5: /assist/* AssistProposal accept/reject + jobs (Hermes A2A); "
         "B15 explode via POST /assist/explode. "
+        "Daily brief is manual: stored tips only, carried until resolved or cleared; "
+        "GET /assist/daily-brief never calls the model, including refresh=true. "
+        "Kitchen notes are a separate store (list/add/resolve). "
+        "Invoice upload stores raw text only; proposals start from "
+        "POST /assist/invoice-uploads/{id}/propose. "
         "Internal agent-events is NOT on /api/v1."
     ),
 )

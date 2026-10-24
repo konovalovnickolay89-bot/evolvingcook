@@ -4,7 +4,13 @@ from __future__ import annotations
 from django.contrib import admin, messages
 from django.db import transaction
 
-from assist.models import AssistJob, AssistProposal, IntelligenceAssignment
+from assist.models import (
+    AssistJob,
+    AssistProposal,
+    IntelligenceAssignment,
+    KitchenInboxItem,
+    KitchenNote,
+)
 from assist.services import (
     AssistError,
     accept_assist_proposal,
@@ -104,6 +110,22 @@ class AssistProposalAdmin(admin.ModelAdmin):
                     messages.ERROR,
                 )
         self.message_user(request, f"Rejected {ok}.", messages.SUCCESS)
+
+
+@admin.register(KitchenNote)
+class KitchenNoteAdmin(admin.ModelAdmin):
+    list_display = ("id", "source", "title", "created_at", "resolved_at")
+    list_filter = ("source",)
+    search_fields = ("title", "body")
+    readonly_fields = ("created_at",)
+
+
+@admin.register(KitchenInboxItem)
+class KitchenInboxItemAdmin(admin.ModelAdmin):
+    list_display = ("id", "kind", "summary", "created_at", "resolved_at")
+    list_filter = ("kind",)
+    search_fields = ("summary",)
+    readonly_fields = ("created_at",)
 
 
 @admin.register(IntelligenceAssignment)
