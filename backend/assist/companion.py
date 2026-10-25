@@ -25,6 +25,7 @@ from django.utils import timezone
 
 from assist.models import AssistProposal, CompanionBrief, CompanionProfile
 from catalog import llm_provider
+from catalog.models import Item, StorageArea
 from planning.models import DishTemplate, ProductionLine, ServiceDay, StationLogLine
 
 MAX_MESSAGES = 12
@@ -34,6 +35,20 @@ MAX_PROFILE_CHARS = 4000
 MAX_MENU_DISHES = 150  # per section
 MAX_MENU_COMPONENTS = 20  # per dish
 MAX_MENU_NOTE_CHARS = 200
+MAX_HOUSE_STOCK = 40  # per storage area
+# House-wide stock the companion may build off-section dishes from.
+# key → StorageArea name (looked up by name; inactive areas are skipped).
+HOUSE_STOCK_AREAS = {"veg_fridge": "veg fridge", "dry_store": "dry store"}
+# Section keys the chef may name in a chat turn. Never "kitchen"/"lounge".
+_SECTION_WORDS = (
+    ("banquet_buffet", re.compile(r"banquet\s+buffet|buffet\s+bowls?|\bbuffet\b(?!.*breakfast)", re.I)),
+    ("breakfast_buffet", re.compile(r"breakfast", re.I)),
+    ("banqueting", re.compile(r"banquet(?:ing)?\b|\bbeo\b", re.I)),
+    ("skybar", re.compile(r"sky\s*bar", re.I)),
+    ("canteen", re.compile(r"canteen", re.I)),
+    ("a_la_carte", re.compile(r"[àa]\s*la\s*carte|\balc\b", re.I)),
+)
+_LOUNGE = re.compile(r"(exec(?:utive)?\s+)?lounge", re.I)
 # Leading tag the menu seeds write on template notes: "NEW · Oct 26 menu · …"
 _MENU_TAG = re.compile(r"^(NEW|CHANGED) · (?:[^·]*menu(?: · |$))?")
 
@@ -61,7 +76,19 @@ SYSTEM_PROMPT = (
     "in the app instead of claiming you did it. A house_profile field may "
     "carry the chef's standing rules and preferences: treat them as "
     "authoritative for this kitchen unless they conflict with food safety. "
-    "Keep replies under 180 words unless asked for a full recipe or plan."
+    "Keep replies under 180 words unless asked for a full recipe or plan.\n"
+    "Sections and house stock: request_scope names the section(s) the chef "
+    "asked about (blank = side / house-wide request: use every section). "
+    "house_stock lists general kitchen stock by storage area (veg_fridge, "
+    "dry_store). Rules: (1) dish on that section's menu → answer from that "
+    "section's menu. (2) Not on the menu but buildable from house_stock → "
+    "say it is not a menu dish, then suggest 1–3 simple builds (e.g. a salad "
+    "or bowl), name the house_stock items used, and mark each as 'prep from "
+    "house stock — not a menu SKU'. (3) Key ingredients missing from "
+    "house_stock and the menus → say what is short; never invent stock. "
+    "(4) The executive lounge is an outlet of à la carte (outlet hint "
+    "executive_lounge), not a section; never invent a 'kitchen' or 'lounge' "
+    "section key."
 )
 
 REPLY_FORMAT = (
@@ -277,6 +304,68 @@ def build_menu_context() -> dict[str, Any]:
     return {"menu": menu, "menu_changes": changes, "off_menu": off_menu}
 
 
+def build_house_stock_context() -> dict[str, list[str]]:
+    """General kitchen stock by storage area (chat only, never the brief).
+
+    Active items whose default_area is an active house-stock area, capped
+    at MAX_HOUSE_STOCK per area with a '+N more' tail.
+    """
+    out: dict[str, list[str]] = {}
+    areas = {
+        a.name: a
+        for a in StorageArea.objects.filter(
+            active=True, name__in=list(HOUSE_STOCK_AREAS.values())
+        )
+    }
+    for key, name in HOUSE_STOCK_AREAS.items():
+        area = areas.get(name)
+        if area is None:
+            continue
+        names = list(
+            dict.fromkeys(
+                n.strip()
+                for n in Item.objects.filter(active=True, default_area=area)
+                .order_by("name")
+                .values_list("name", flat=True)
+                if n and n.strip()
+            )
+        )
+        more = len(names) - MAX_HOUSE_STOCK
+        out[key] = names[:MAX_HOUSE_STOCK] + ([f"+{more} more"] if more > 0 else [])
+    return out
+
+
+def resolve_request_scope(text: str) -> dict[str, Any]:
+    """Section(s) + outlet hint for one chef message.
+
+    Exec lounge → a_la_carte + outlet executive_lounge. No section named →
+    blank (side / house-wide: all sections). House stock always rides along.
+    """
+    text = text or ""
+    sections: list[str] = []
+    outlet = ""
+    if _LOUNGE.search(text):
+        sections.append("a_la_carte")
+        outlet = "executive_lounge"
+    for key, rx in _SECTION_WORDS:
+        if key not in sections and rx.search(text):
+            sections.append(key)
+    if "breakfast_buffet" in sections and not re.search(
+        r"banquet\s+buffet|buffet\s+bowls?", text, re.I
+    ):
+        sections = [x for x in sections if x != "banquet_buffet"]
+    return {"sections": sections, "outlet": outlet}
+
+
+def _slice_menu(ctx: dict[str, Any], sections: list[str]) -> dict[str, Any]:
+    if not sections:
+        return ctx
+    for k in ("menu", "menu_changes", "off_menu"):
+        if isinstance(ctx.get(k), dict):
+            ctx[k] = {s: v for s, v in ctx[k].items() if s in sections}
+    return ctx
+
+
 def build_day_context(service_date: date) -> dict[str, Any]:
     """Compact read-only snapshot of the day for prompt grounding."""
     ctx: dict[str, Any] = {
@@ -385,9 +474,16 @@ def companion_chat(
     if not trimmed or trimmed[-1]["role"] != "user":
         raise CompanionError("Last message must be from the chef.", code="bad_request")
 
+    scope = resolve_request_scope(trimmed[-1]["content"])
+    snapshot = _slice_menu(build_day_context(service_date), scope["sections"])
     user_text = json.dumps(
         {
-            "day_snapshot": build_day_context(service_date),
+            "day_snapshot": snapshot,
+            "request_scope": {
+                "sections": scope["sections"] or "",  # "" = side / house-wide
+                "outlet": scope["outlet"] or None,
+            },
+            "house_stock": build_house_stock_context(),
             "house_profile": get_profile()["text"] or None,
             "conversation": trimmed,
             "format": REPLY_FORMAT,
