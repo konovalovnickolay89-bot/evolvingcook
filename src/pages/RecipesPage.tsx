@@ -115,7 +115,7 @@ export function RecipesPage({ onBack, onOpenRecipe, onNewRecipe }: Props) {
                 `${r.ingredients.length} ingredients`,
                 r.allergens.length
                   ? `allergens: ${r.allergens.join(", ")}`
-                  : "no listed allergens",
+                  : "allergens not recorded",
               ]
                 .filter(Boolean)
                 .join(" · ")}

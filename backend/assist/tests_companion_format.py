@@ -67,6 +67,7 @@ class RepairReplyTests(SimpleTestCase):
 
 @patch.object(companion, "_require_key", lambda: None)
 @patch.object(companion, "build_day_context", lambda d: {"sections": []})
+@patch.object(companion, "build_house_stock_context", lambda: {})
 @patch.object(companion, "get_profile", lambda: {"text": "", "updated_at": None})
 class CompanionChatShapeTests(SimpleTestCase):
     def _chat(self, model_obj, history=None):

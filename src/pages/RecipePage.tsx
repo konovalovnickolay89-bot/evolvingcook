@@ -216,7 +216,11 @@ export function RecipePage({ recipeId, onBack, onSaved }: Props) {
                 </span>
               ))}
             </div>
-          ) : null}
+          ) : (
+            <p className="page-lead" style={{ marginBottom: 0 }}>
+              allergens not recorded
+            </p>
+          )}
 
           {base ? (
             <div className="tune-card">
@@ -478,6 +482,10 @@ export function RecipePage({ recipeId, onBack, onSaved }: Props) {
 
           <div>
             <div className="board__section-label">Allergens</div>
+            <p className="page-lead" style={{ marginBottom: 0 }}>
+              Tick only what is in the dish. Leaving these unticked means
+              allergens not recorded.
+            </p>
             <div className="kind-chips" style={{ marginTop: 8 }}>
               {UK14_ALLERGENS.map((a) => {
                 const on = form.allergens.includes(a);

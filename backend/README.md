@@ -165,11 +165,12 @@ curl -sS -X POST -H 'Content-Type: application/json' -H 'Host: api.apidiscoverys
 
 ## Auth contract (Phase 0)
 
-- `POST /api/v1/auth/login` → signed Bearer token (Django `signing`, **30 days**)
-- `POST /api/v1/auth/refresh` extends
+- `POST /api/v1/auth/login` → signed Bearer token (Django `signing`). Lifetime is `AUTH_TOKEN_MAX_AGE_SECONDS` (default **30 days**).
+- `POST /api/v1/auth/refresh` extends a token that has not yet expired
 - **401 is never a reason to drop data** — client re-auths and retries (cold-room walk)
-- Login rate-limited (`django-ratelimit`, default `10/5m` per IP)
+- Login rate-limited (`django-ratelimit` on the Django cache): default `10/5m` per IP (`CF-Connecting-IP`, else `REMOTE_ADDR`) and `10/15m` per username
 - Edge WAF on `/api/v1/auth/*` is Nick/Cloudflare (app-side limit is always on)
+- `/api/internal/*` is direct loopback only. Requests that carry Cloudflare or forwarding headers are refused, which is what blocks the public tunnel (it dials 127.0.0.1). `intelligence/assign` also requires `X-Internal-Token` (`INTERNAL_API_TOKEN`). `agent-events` stays HMAC (`WEBHOOK_SECRET`).
 
 ## CORS
 

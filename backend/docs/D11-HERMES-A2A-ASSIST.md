@@ -83,13 +83,13 @@ No token ⇒ bind stays `127.0.0.1` (required). Do **not** set `A2A_HOST=0.0.0.0
 
 | Path | Public tunnel? | Auth |
 |------|----------------|------|
-| `POST /api/internal/agent-events` | **No** — must **not** exist on the tunnel-facing `/api/v1/*` router | Signature only (+ optional loopback IP check) |
+| `POST /api/internal/agent-events` | **No** — must **not** exist on the tunnel-facing `/api/v1/*` router | HMAC, and the request must be direct loopback with no `CF-*` or forwarding headers. `REMOTE_ADDR` alone is not enough: the tunnel dials 127.0.0.1 |
 | `/api/v1/*` AssistProposal list/accept | Yes (Bearer app auth) | Normal API auth |
 | `/admin/*` AssistProposal + job | CF Access as today | Staff |
 
 Hard rules:
 
-1. Mount internal routes on a **separate** Django/Ninja entry (or path prefix) that Cloudflare tunnel **does not** route. Prefer binding verification: reject non-loopback `REMOTE_ADDR` / proxy headers in production settings.
+1. Mount internal routes outside `/api/v1`. The tunnel still reaches every path on `127.0.0.1:8000`, so the app rejects non-loopback `REMOTE_ADDR` and any `CF-*` or forwarding header. That check is not optional. `intelligence/assign` also requires `X-Internal-Token`.
 2. URL registered with Hermes is always **`http://127.0.0.1:8000/api/internal/agent-events`** — never `api.apidiscoverysolution.uk`.
 3. CSRF exempt (machine POST); no session cookie auth.
 

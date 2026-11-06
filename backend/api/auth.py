@@ -1,18 +1,22 @@
 """
-Auth helpers: signed Bearer tokens (Django signing, 30-day expiry).
+Auth helpers: signed Bearer tokens (Django signing).
 
-Contract note (critical): a walk is 30–60 min offline in a cold room; the token
+Lifetime is settings.AUTH_TOKEN_MAX_AGE (env AUTH_TOKEN_MAX_AGE_SECONDS,
+default 30 days). A walk is 30–60 min offline in a cold room; the token
 may expire mid-walk. A 401 must be clearly distinguishable from a data error so
 the frontend re-auths and retries. A 401 is NEVER a reason to drop data.
 """
 from __future__ import annotations
 
+import ipaddress
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
 from django.core import signing
+from django.http import HttpRequest
 from ninja.security import HttpBearer
 
 
@@ -74,6 +78,47 @@ def login_with_password(email: str, password: str):
     if authed is None or not authed.is_active:
         return None
     return authed
+
+
+def client_ip_for_login(request: HttpRequest) -> str:
+    """IP bucket for login rate limiting.
+
+    The tunnel's REMOTE_ADDR is always 127.0.0.1. cloudflared overwrites
+    CF-Connecting-IP with the real client, so that header is the per-IP key
+    when it is a valid address. X-Forwarded-For is ignored: the client can
+    prepend it and would otherwise mint a fresh bucket per request.
+    """
+    cf = (request.META.get("HTTP_CF_CONNECTING_IP") or "").split(",")[0].strip()
+    if cf:
+        try:
+            return str(ipaddress.ip_address(cf))
+        except ValueError:
+            pass
+    remote = (request.META.get("REMOTE_ADDR") or "").strip()
+    try:
+        return str(ipaddress.ip_address(remote))
+    except ValueError:
+        return "unknown"
+
+
+def login_ip_key(_group: str, request: HttpRequest) -> str:
+    return client_ip_for_login(request)
+
+
+def username_for_login(request: HttpRequest) -> str:
+    """Normalised login name from the JSON body. Missing name shares one bucket."""
+    try:
+        payload = json.loads((request.body or b"{}").decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return "-"
+    if not isinstance(payload, dict):
+        return "-"
+    email = str(payload.get("email") or payload.get("username") or "").strip().lower()
+    return email or "-"
+
+
+def login_username_key(_group: str, request: HttpRequest) -> str:
+    return username_for_login(request)
 
 
 def token_payload_for_openapi() -> dict[str, Any]:
