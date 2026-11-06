@@ -14,6 +14,7 @@ from ninja import Router, Schema
 
 from api.auth import BearerAuth
 from assist import companion
+from catalog.allergens import UnknownAllergen, normalize_allergens
 from catalog.models import Recipe
 
 router = Router(tags=["recipes"], auth=BearerAuth())
@@ -63,6 +64,17 @@ def _dec(v: float | None) -> Decimal | None:
         return None
 
 
+def _allergens_or_error(values):
+    try:
+        return normalize_allergens(values or [], strict=True), None
+    except UnknownAllergen as exc:
+        names = ", ".join(exc.unknown)
+        return None, {
+            "detail": f"Unrecognised allergen name: {names}",
+            "code": "unknown_allergen",
+        }
+
+
 def _out(r: Recipe) -> dict[str, Any]:
     return {
         "id": r.id,
@@ -73,7 +85,7 @@ def _out(r: Recipe) -> dict[str, Any]:
         "yield_unit": r.yield_unit,
         "ingredients": r.ingredients or [],
         "method": r.method or [],
-        "allergens": r.allergens or [],
+        "allergens": normalize_allergens(r.allergens or [], strict=False),
         "notes": r.notes,
         "source": r.source,
         "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -95,6 +107,9 @@ def create_recipe(request: HttpRequest, body: RecipeIn):
     name = body.name.strip()
     if not name:
         return 400, {"detail": "Recipe needs a name", "code": "missing_name"}
+    allergens, err = _allergens_or_error(body.allergens)
+    if err is not None:
+        return 400, err
     r = Recipe.objects.create(
         name=name,
         section=(body.section or "").strip(),
@@ -103,7 +118,7 @@ def create_recipe(request: HttpRequest, body: RecipeIn):
         yield_unit=(body.yield_unit or "").strip(),
         ingredients=body.ingredients or [],
         method=body.method or [],
-        allergens=body.allergens or [],
+        allergens=allergens,
         notes=body.notes or "",
         source=body.source if body.source in ("chef", "companion") else "chef",
     )
@@ -154,7 +169,10 @@ def patch_recipe(request: HttpRequest, recipe_id: int, body: RecipePatchIn):
     if "method" in fields:
         r.method = fields["method"] or []
     if "allergens" in fields:
-        r.allergens = fields["allergens"] or []
+        allergens, err = _allergens_or_error(fields["allergens"])
+        if err is not None:
+            return 400, err
+        r.allergens = allergens
     if "notes" in fields:
         r.notes = fields["notes"] or ""
     r.save()

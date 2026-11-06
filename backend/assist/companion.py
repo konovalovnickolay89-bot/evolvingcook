@@ -23,8 +23,10 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from assist.allergen_safety import ALLERGEN_DEFERENCE, ALLERGEN_SAFETY_REFUSAL, guard_allergen_claims
 from assist.models import AssistProposal, CompanionBrief, CompanionProfile
 from catalog import llm_provider
+from catalog.allergens import UK14_ALLERGENS, normalize_allergens
 from catalog.models import Item, StorageArea
 from planning.models import DishTemplate, ProductionLine, ServiceDay, StationLogLine
 
@@ -89,7 +91,7 @@ SYSTEM_PROMPT = (
     "(4) The executive lounge is an outlet of à la carte (outlet hint "
     "executive_lounge), not a section; never invent a 'kitchen' or 'lounge' "
     "section key."
-)
+) + "\n" + ALLERGEN_SAFETY_REFUSAL
 
 REPLY_FORMAT = (
     "Write the reply for a phone screen. It is ONE plain-text string, never "
@@ -496,7 +498,9 @@ def companion_chat(
     data, model = _call(SYSTEM_PROMPT, user_text)
     # JSON mode sometimes nests the answer ({"reply": {"actions": [...]}})
     # or drops the wrapper; either way render it as text, never a repr.
-    reply = _repair_reply(_as_text(data["reply"] if "reply" in data else data))
+    reply = guard_allergen_claims(
+        _repair_reply(_as_text(data["reply"] if "reply" in data else data))
+    )
     if not reply:
         raise CompanionError("Companion returned an empty reply.")
     return {"reply": reply, "model": model}
@@ -719,8 +723,11 @@ RECIPE_TASK = (
     "and say so in notes). Ingredients with qty+unit a commis can weigh out. "
     "Method MEP-first: longest lead first, clock references only where they "
     "matter, show arithmetic in the step where you scale or ratio anything. "
-    "allergens: names from the UK 14 list actually present in the recipe. "
-    "Plain chef-speak throughout; no invented house rules."
+    "allergens: include only these names, and only when the ingredients show "
+    "them: "
+    + ", ".join(UK14_ALLERGENS)
+    + ". An empty list means allergens not recorded. Do not claim an allergen "
+    "is absent. Plain chef-speak throughout; no invented house rules."
 )
 
 
@@ -744,7 +751,9 @@ def draft_recipe(prompt: str, covers: int | None = None) -> dict[str, Any]:
                     {"name": "string", "qty": "number or null", "unit": "string", "note": "string"}
                 ],
                 "method": ["step strings in order"],
-                "allergens": ["UK-14 allergen names present"],
+                "allergens": [
+                    "UK 14 names present, or an empty list when allergens not recorded"
+                ],
                 "notes": "string",
             },
         },
@@ -769,21 +778,33 @@ def draft_recipe(prompt: str, covers: int | None = None) -> dict[str, Any]:
         for i in (data.get("ingredients") or [])
         if isinstance(i, dict) and str(i.get("name", "")).strip()
     ]
-    method = [_as_text(s) for s in (data.get("method") or []) if _as_text(s)]
+    method = [
+        guard_allergen_claims(_as_text(s))
+        for s in (data.get("method") or [])
+        if _as_text(s)
+    ]
     if not ingredients or not method:
         raise CompanionError("Companion returned an incomplete recipe.")
     bc = data.get("base_covers")
+    fallback_name = text[:80] or "Recipe"
+    name = _safe_recipe_name(str(data.get("name", "")).strip(), fallback_name)
     return {
-        "name": str(data.get("name", "")).strip() or text[:80],
+        "name": name,
         "base_covers": int(bc) if isinstance(bc, (int, float)) and bc and bc > 0 else covers,
         "yield_qty": _num(data.get("yield_qty")),
         "yield_unit": str(data.get("yield_unit", "")).strip(),
         "ingredients": ingredients,
         "method": method,
-        "allergens": [
-            str(a).strip() for a in (data.get("allergens") or []) if str(a).strip()
-        ],
-        "notes": _as_text(data.get("notes")),
+        "allergens": normalize_allergens(data.get("allergens") or [], strict=False),
+        "notes": guard_allergen_claims(_as_text(data.get("notes"))),
         "source": "companion",
         "model": model,
     }
+
+
+def _safe_recipe_name(name: str, fallback: str) -> str:
+    """A title that only claims an allergen is absent is not a title."""
+    guarded = guard_allergen_claims(name).strip()
+    if not guarded or guarded == ALLERGEN_DEFERENCE or "\n" in guarded:
+        return fallback
+    return guarded
