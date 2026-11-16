@@ -290,8 +290,7 @@ def companion_chat(request: HttpRequest, body: ChatIn):
     try:
         return 200, companion.companion_chat(msgs, sd)
     except companion.CompanionError as exc:
-        status = 400 if exc.code == "bad_request" else 503
-        return status, {"detail": str(exc), "code": exc.code}
+        return _companion_http(exc), {"detail": str(exc), "code": exc.code}
 
 
 @router.get(
@@ -332,7 +331,8 @@ def put_companion_profile(request: HttpRequest, body: ProfileIn):
 def _companion_http(exc: companion.CompanionError) -> int:
     if exc.code == "not_found":
         return 404
-    if exc.code == "bad_request":
+    # bad_request: the chef's payload. llm_rejected: Mistral returned 400.
+    if exc.code in {"bad_request", "llm_rejected"}:
         return 400
     return 503
 

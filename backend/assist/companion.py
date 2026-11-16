@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import os
 import re
 import uuid
@@ -27,6 +28,8 @@ from assist.models import AssistProposal, CompanionBrief, CompanionProfile
 from catalog import llm_provider
 from catalog.models import Item, StorageArea
 from planning.models import DishTemplate, ProductionLine, ServiceDay, StationLogLine
+
+logger = logging.getLogger(__name__)
 
 MAX_MESSAGES = 12
 MAX_CONTENT_CHARS = 2000
@@ -437,11 +440,36 @@ def _call(system: str, user_text: str) -> tuple[dict[str, Any], str]:
     model = get_companion_model()
     for attempt in (1, 2):
         try:
+            # 4096, not the ingest default of 32768. Reserving 32k completion
+            # tokens on top of the menu snapshot is a Mistral HTTP 400 when
+            # that sum exceeds the model context.
             raw = llm_provider.chat_completion_json(
-                system=system, user_text=user_text, model=model, timeout=90.0
+                system=system,
+                user_text=user_text,
+                model=model,
+                timeout=90.0,
+                max_tokens=llm_provider.COMPANION_MAX_TOKENS,
             )
-        except Exception as exc:  # httpx/network/provider errors → one clear code
-            raise CompanionError(f"Companion call failed: {exc}") from exc
+        except llm_provider.MistralHTTPError as exc:
+            if exc.status_code == 400:
+                raise CompanionError(
+                    "Companion couldn't take that question. Try a shorter one.",
+                    code="llm_rejected",
+                ) from exc
+            raise CompanionError(
+                "Companion is unavailable right now. Try again in a moment.",
+                code="llm_error",
+            ) from exc
+        except Exception as exc:  # network / unexpected provider errors
+            logger.warning(
+                "Companion call failed: %s",
+                llm_provider.redact_provider_text(
+                    f"{type(exc).__name__}: {exc}", llm_provider.get_api_key()
+                ),
+            )
+            raise CompanionError(
+                "Companion is unavailable right now. Try again in a moment.",
+            ) from exc
         try:
             data = json.loads(raw)
             if not isinstance(data, dict):
