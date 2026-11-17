@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+from datetime import date
 from unittest.mock import patch
 
 import httpx
 from django.test import SimpleTestCase, override_settings
 
 from assist import companion
-from catalog import llm_provider
+from catalog import ingest, llm_provider
 
 KEY = "sk-test-secret-do-not-log"
 # Cap the companion is allowed to send: 6 sections × 150 dishes, each with a
@@ -42,16 +44,20 @@ class _Client:
         return _Client.response
 
 
-def _ok_response() -> httpx.Response:
+def _content_response(content: str) -> httpx.Response:
     return httpx.Response(
         200,
-        json={"choices": [{"message": {"content": '{"reply": "Fire the jus."}'}}]},
+        json={"choices": [{"message": {"content": content}}]},
         request=httpx.Request(
             "POST",
             llm_provider.CHAT_URL,
             headers={"Authorization": f"Bearer {KEY}"},
         ),
     )
+
+
+def _ok_response() -> httpx.Response:
+    return _content_response('{"reply": "Fire the jus."}')
 
 
 def _error_response(status: int, payload: dict) -> httpx.Response:
@@ -250,3 +256,146 @@ class MistralPayloadTests(SimpleTestCase):
         self.assertNotIn(KEY, str(caught.exception))
         self.assertNotIn("bad payload", str(caught.exception))
         self.assertIn("shorter", str(caught.exception))
+
+    def _posted(self, **kwargs) -> dict:
+        _Client.posts.clear()
+        llm_provider.chat_completion_json(
+            system="Reply as JSON.",
+            user_text="Fire the jus.",
+            model="mistral-large-latest",
+            max_tokens=128,
+            **kwargs,
+        )
+        self.assertEqual(len(_Client.posts), 1)
+        return _Client.posts[0]["json"]
+
+    def test_temperature_zero_sends_top_p_one(self):
+        """The live 400: temperature 0 and no top_p (code 3054).
+
+        Greedy sampling is only valid with top_p exactly 1, including when a
+        caller passed some other nucleus or a temperature that clamps to 0.
+        """
+        cases = [
+            {},
+            {"temperature": 0},
+            {"temperature": 0, "top_p": 0.2},
+            {"temperature": 0.0, "top_p": 0},
+            {"temperature": -4, "top_p": 0.9},
+            {"temperature": float("nan"), "top_p": 5},
+            {"temperature": "0", "top_p": None},
+        ]
+        for kwargs in cases:
+            body = self._posted(**kwargs)
+            self.assertEqual(body["temperature"], 0, kwargs)
+            self.assertEqual(body["top_p"], 1, kwargs)
+            self.assertEqual(llm_provider.mistral_payload_issues(body), [], kwargs)
+
+    def test_nonzero_temperature_clamps_top_p(self):
+        kept = self._posted(temperature=0.4, top_p=0.3)
+        self.assertEqual(kept["temperature"], 0.4)
+        self.assertEqual(kept["top_p"], 0.3)
+        self.assertEqual(llm_provider.mistral_payload_issues(kept), [])
+
+        capped = self._posted(temperature=0.4, top_p=5)
+        self.assertEqual(capped["top_p"], 1)
+        self.assertEqual(llm_provider.mistral_payload_issues(capped), [])
+
+        # temperature 9 clamps to the API maximum and is not greedy, so a
+        # legal top_p is left alone.
+        warm = self._posted(temperature=9, top_p=0.25)
+        self.assertEqual(warm["temperature"], llm_provider.TEMPERATURE_MAX)
+        self.assertEqual(warm["top_p"], 0.25)
+        self.assertEqual(llm_provider.mistral_payload_issues(warm), [])
+
+        defaulted = self._posted(temperature=0.6)
+        self.assertEqual(defaulted["top_p"], 1)
+
+        parsed = self._posted(temperature=0.6, top_p="0.8")
+        self.assertEqual(parsed["top_p"], 0.8)
+
+        for raw in (0, -3, "0"):
+            opened = self._posted(temperature=0.2, top_p=raw)
+            self.assertGreater(opened["top_p"], 0, raw)
+            self.assertLessEqual(opened["top_p"], 1, raw)
+            self.assertEqual(opened["top_p"], math.nextafter(0.0, 1.0), raw)
+            self.assertEqual(llm_provider.mistral_payload_issues(opened), [], raw)
+
+    def test_greedy_payload_without_top_p_is_invalid(self):
+        bare = {
+            "model": "mistral-large-latest",
+            "temperature": 0,
+            "max_tokens": 128,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": "Reply as JSON."},
+                {"role": "user", "content": "Hello"},
+            ],
+        }
+        self.assertIn("top_p", llm_provider.mistral_payload_issues(bare))
+        bare["top_p"] = 0.9
+        self.assertIn("top_p", llm_provider.mistral_payload_issues(bare))
+        bare["top_p"] = 1
+        self.assertEqual(llm_provider.mistral_payload_issues(bare), [])
+        warm = {**bare, "temperature": 0.4, "top_p": 0}
+        self.assertIn("top_p", llm_provider.mistral_payload_issues(warm))
+        warm["top_p"] = 0.4
+        self.assertEqual(llm_provider.mistral_payload_issues(warm), [])
+
+    def test_companion_chat_payload_passes(self):
+        with (
+            patch.object(companion, "build_day_context", lambda d: {"sections": []}),
+            patch.object(companion, "build_house_stock_context", lambda: {}),
+            patch.object(companion, "get_profile", lambda: {"text": "", "updated_at": None}),
+        ):
+            out = companion.companion_chat(
+                [{"role": "user", "content": "What should I fire first?"}],
+                date(2026, 11, 17),
+            )
+        self.assertEqual(out["reply"], "Fire the jus.")
+        body = _Client.posts[0]["json"]
+        self.assertEqual(body["temperature"], 0)
+        self.assertEqual(body["top_p"], 1)
+        self.assertEqual(body["max_tokens"], llm_provider.COMPANION_MAX_TOKENS)
+        self.assertEqual(body["model"], "mistral-large-latest")
+        self.assertEqual(llm_provider.mistral_payload_issues(body), [])
+
+    def test_recipe_draft_payload_passes(self):
+        _Client.response = _content_response(
+            json.dumps(
+                {
+                    "name": "Chicken jus",
+                    "base_covers": 20,
+                    "ingredients": [
+                        {"name": "chicken", "qty": 2, "unit": "kg", "note": ""}
+                    ],
+                    "method": ["Reduce the stock."],
+                    "allergens": ["celery"],
+                    "notes": "Batch for 20.",
+                }
+            )
+        )
+        with patch.object(
+            companion, "get_profile", lambda: {"text": "", "updated_at": None}
+        ):
+            card = companion.draft_recipe("chicken jus for service", covers=20)
+        self.assertEqual(card["name"], "Chicken jus")
+        self.assertEqual(card["allergens"], ["celery"])
+        body = _Client.posts[0]["json"]
+        self.assertEqual(body["temperature"], 0)
+        self.assertEqual(body["top_p"], 1)
+        self.assertEqual(body["max_tokens"], llm_provider.COMPANION_MAX_TOKENS)
+        self.assertEqual(body["model"], "mistral-large-latest")
+        self.assertEqual(llm_provider.mistral_payload_issues(body), [])
+
+    def test_ingest_payload_passes(self):
+        text = ingest._call_llm_strict_json(
+            {"text": "chicken thigh 2 kg", "images": None},
+            model="mistral-medium-latest",
+        )
+        self.assertIn("Fire the jus", text)
+        body = _Client.posts[0]["json"]
+        self.assertEqual(body["temperature"], 0)
+        self.assertEqual(body["top_p"], 1)
+        self.assertEqual(body["max_tokens"], llm_provider.INGEST_MAX_TOKENS)
+        self.assertEqual(body["model"], "mistral-medium-latest")
+        self.assertEqual(llm_provider.mistral_payload_issues(body), [])
