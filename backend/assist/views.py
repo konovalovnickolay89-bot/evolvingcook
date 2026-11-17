@@ -1,7 +1,13 @@
 """
-Internal A2A push receiver — POST /api/internal/agent-events
+Internal routes — not on /api/v1.
 
-Not on /api/v1. CSRF exempt. Auth = HMAC only (X-A2A-Signature).
+POST /api/internal/agent-events
+    Direct loopback only (no Cloudflare or forwarding headers). CSRF exempt.
+    Auth = HMAC (X-A2A-Signature / WEBHOOK_SECRET).
+
+GET/PUT/POST /api/internal/intelligence/assign
+    Same direct-loopback rule, plus X-Internal-Token (INTERNAL_API_TOKEN).
+    This route has no payload signature; the shared token is the credential.
 """
 from __future__ import annotations
 
@@ -15,18 +21,10 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from assist.internal_gate import direct_loopback_or_response, internal_token_or_response
 from assist.services import AssistError, handle_agent_event
 
 logger = logging.getLogger(__name__)
-
-
-def _client_ip(request: HttpRequest) -> str:
-    # Prefer direct REMOTE_ADDR; do not trust X-Forwarded-For for loopback gate
-    return (request.META.get("REMOTE_ADDR") or "").strip()
-
-
-def _is_loopback(ip: str) -> bool:
-    return ip in {"127.0.0.1", "::1", "localhost"}
 
 
 def verify_a2a_signature(payload: dict, header_sig: str, secret: str) -> bool:
@@ -49,15 +47,12 @@ def verify_a2a_signature(payload: dict, header_sig: str, secret: str) -> bool:
 @csrf_exempt
 @require_POST
 def agent_events(request: HttpRequest) -> HttpResponse:
-    if settings.A2A_INTERNAL_LOOPBACK_ONLY and not _is_loopback(_client_ip(request)):
-        logger.warning(
-            "agent-events rejected non-loopback REMOTE_ADDR=%s",
-            _client_ip(request),
-        )
-        return JsonResponse(
-            {"detail": "loopback only", "code": "forbidden_remote"},
-            status=403,
-        )
+    # Unconditional. A2A_INTERNAL_LOOPBACK_ONLY must not turn this off:
+    # the tunnel's REMOTE_ADDR is loopback, so the edge-header check is
+    # what makes the route unreachable on the public hostname.
+    blocked = direct_loopback_or_response(request)
+    if blocked is not None:
+        return blocked
 
     secret = settings.WEBHOOK_SECRET or ""
     if not secret:
@@ -112,15 +107,17 @@ def agent_events(request: HttpRequest) -> HttpResponse:
 @csrf_exempt
 def intelligence_assign(request: HttpRequest) -> HttpResponse:
     """
-    Programmatic provider assignment. Loopback only. Not on /api/v1.
+    Programmatic provider assignment. Not on /api/v1.
+    Direct loopback, no edge headers, and X-Internal-Token.
     GET  — list assignments + resolved default
     PUT  — { "task": "station_log", "provider": "rules|hermes|grok", "section": "" }
     """
-    if settings.A2A_INTERNAL_LOOPBACK_ONLY and not _is_loopback(_client_ip(request)):
-        return JsonResponse(
-            {"detail": "loopback only", "code": "forbidden_remote"},
-            status=403,
-        )
+    blocked = direct_loopback_or_response(request)
+    if blocked is not None:
+        return blocked
+    blocked = internal_token_or_response(request)
+    if blocked is not None:
+        return blocked
     from assist.models import IntelligenceAssignment
     from assist.providers import PROVIDERS, assign_provider, resolve_provider
     from planning.services import PlanningError

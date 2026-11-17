@@ -2,7 +2,8 @@
 Modular station-log intelligence.
 
 Providers: rules | hermes | grok
-Assigned via env, IntelligenceAssignment row, or PUT /api/internal/intelligence/assign.
+Assigned via env, IntelligenceAssignment row, or PUT /api/internal/intelligence/assign
+(direct loopback + X-Internal-Token).
 Chef never picks a bot. Bots may only insert open StationLogLine drafts.
 """
 from __future__ import annotations

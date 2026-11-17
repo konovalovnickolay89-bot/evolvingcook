@@ -18,7 +18,14 @@ from ninja import NinjaAPI, Schema
 from ninja.errors import HttpError
 
 from api.assist import router as assist_router
-from api.auth import BearerAuth, issue_token, login_with_password, user_from_token
+from api.auth import (
+    BearerAuth,
+    issue_token,
+    login_ip_key,
+    login_username_key,
+    login_with_password,
+    user_from_token,
+)
 from api.boards import router as boards_router
 from api.inventory import router as inventory_router
 from api.items import router as items_router
@@ -37,7 +44,8 @@ api = NinjaAPI(
     docs_url="/docs",
     description=(
         "Backend contract for Evolving Cook. "
-        "Auth: Bearer token from /auth/login (Django signing, 30 days). "
+        "Auth: Bearer token from /auth/login "
+        f"(Django signing, expires in {settings.AUTH_TOKEN_MAX_AGE} seconds). "
         "401 is never a reason to drop client data — re-auth and retry. "
         "Walk batch submit 401: re-auth and retry the batch; never discard line payloads. "
         "Phase 1.5: /boards/* MEP service boards (covers never required). "
@@ -123,15 +131,26 @@ def version(request: HttpRequest):
     tags=["auth"],
 )
 def auth_login(request: HttpRequest, body: LoginIn):
-    # App-side rate limit (edge WAF may also cover /api/v1/auth/*)
-    if is_ratelimited(
+    # Two buckets on the default cache (django-ratelimit). Both increment
+    # before the password check so a wrong password counts. Edge WAF may
+    # also cover /api/v1/auth/*.
+    ip_limited = is_ratelimited(
         request,
-        group="auth_login",
-        key="ip",
+        group="auth_login_ip",
+        key=login_ip_key,
         rate=settings.AUTH_LOGIN_RATELIMIT,
         method="POST",
         increment=True,
-    ):
+    )
+    user_limited = is_ratelimited(
+        request,
+        group="auth_login_username",
+        key=login_username_key,
+        rate=settings.AUTH_LOGIN_USERNAME_RATELIMIT,
+        method="POST",
+        increment=True,
+    )
+    if ip_limited or user_limited:
         return 429, {
             "detail": "Too many login attempts. Try again later.",
             "code": "rate_limited",

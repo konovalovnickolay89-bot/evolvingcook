@@ -149,10 +149,10 @@ export const WALK_AREA_LABELS = [
   "Banquet hold",
 ] as const;
 
-/** UK FSA 14 allergens — recipe card chips. */
+/** UK FSA 14 — the only recognised allergen names. Matches the API allowlist. */
 export const UK14_ALLERGENS = [
   "celery",
-  "gluten",
+  "cereals containing gluten",
   "crustaceans",
   "eggs",
   "fish",
@@ -160,7 +160,7 @@ export const UK14_ALLERGENS = [
   "milk",
   "molluscs",
   "mustard",
-  "nuts",
+  "tree nuts",
   "peanuts",
   "sesame",
   "soya",

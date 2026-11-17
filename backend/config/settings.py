@@ -33,6 +33,24 @@ def env_list(key: str, default: list[str] | None = None) -> list[str]:
     return [part.strip() for part in raw.split(",") if part.strip()]
 
 
+def env_int(key: str, default: int) -> int:
+    """Positive integer from the environment. Unset uses default.
+
+    A present but invalid value fails startup so a typo cannot silently
+    leave a longer token lifetime than the operator asked for.
+    """
+    raw = os.environ.get(key)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError as exc:
+        raise RuntimeError(f"{key} must be an integer number of seconds") from exc
+    if value <= 0:
+        raise RuntimeError(f"{key} must be a positive number of seconds")
+    return value
+
+
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
     raise RuntimeError("DJANGO_SECRET_KEY is required")
@@ -185,13 +203,20 @@ CONTRACT_VERSION = env("CONTRACT_VERSION", "0.1.20")
 # Absolute base-unit floor (not a percentage). Override via env if needed.
 VARIANCE_NOISE_FLOOR = env("VARIANCE_NOISE_FLOOR", "0.001")
 
-# Auth token (Django signing; no JWT lib)
+# Auth token (Django signing; no JWT lib).
+# 30 days covers a cold-room walk (30–60 min offline) and a phone left
+# overnight. AUTH_TOKEN_MAX_AGE_SECONDS overrides it. Lowering the value
+# expires tokens already older than the new window on their next use.
 AUTH_TOKEN_SALT = "evolving-cook.auth.v1"
-AUTH_TOKEN_MAX_AGE = 30 * 24 * 3600  # 30 days
+AUTH_TOKEN_MAX_AGE = env_int("AUTH_TOKEN_MAX_AGE_SECONDS", 30 * 24 * 3600)
 
-# Login rate limit: django-ratelimit keys (see api.auth)
-# 10 attempts / 5 minutes per IP — public posture; edge WAF may add more
+# Login rate limit via django-ratelimit on the default cache (file-based;
+# point CACHES at Redis and both buckets follow — no second store).
+# Per IP uses CF-Connecting-IP when the tunnel set it, else REMOTE_ADDR.
+# X-Forwarded-For is not a rate-limit key (the client can spoof it).
+# 10 attempts / 5 minutes per IP, 10 / 15 minutes per username.
 AUTH_LOGIN_RATELIMIT = env("AUTH_LOGIN_RATELIMIT", "10/5m")
+AUTH_LOGIN_USERNAME_RATELIMIT = env("AUTH_LOGIN_USERNAME_RATELIMIT", "10/15m")
 
 # Media (catalog ingest photo uploads); not public-facing beyond admin
 MEDIA_URL = "media/"
@@ -212,8 +237,12 @@ A2A_PUSH_CALLBACK_URL = env(
     "http://127.0.0.1:8000/api/internal/agent-events",
 ) or "http://127.0.0.1:8000/api/internal/agent-events"
 A2A_SEND_TIMEOUT = int(env("A2A_SEND_TIMEOUT", "60") or "60")
-# Reject non-loopback REMOTE_ADDR on agent-events when True (production default).
+# Retained so existing env files still load. The internal gate does not
+# consult this: turning it off must not re-open /api/internal/* on the tunnel.
 A2A_INTERNAL_LOOPBACK_ONLY = env_bool("A2A_INTERNAL_LOOPBACK_ONLY", True)
+# Shared secret for /api/internal/intelligence/assign (header X-Internal-Token).
+# Empty or shorter than 16 characters refuses every call (fail closed).
+INTERNAL_API_TOKEN = env("INTERNAL_API_TOKEN", "") or ""
 
 # Station-log intelligence (rules always available; hermes/grok assigned in env or DB)
 STATION_LOG_PROVIDER = (env("STATION_LOG_PROVIDER", "rules") or "rules").strip().lower()

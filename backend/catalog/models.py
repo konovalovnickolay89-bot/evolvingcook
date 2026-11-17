@@ -14,6 +14,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
+from catalog.allergens import normalize_allergens
+
 
 class StorageArea(models.Model):
     class Kind(models.TextChoices):
@@ -98,6 +100,13 @@ class Item(models.Model):
             raise ValidationError({"base_unit": "base_unit must be g, ml, or ea"})
         if self.notes is not None and len(self.notes) > 500:
             raise ValidationError({"notes": "notes max_length is 500"})
+
+    def save(self, *args, **kwargs):
+        self.allergens = normalize_allergens(self.allergens, strict=False)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"allergens"}
+        super().save(*args, **kwargs)
 
 
 class ItemComponent(models.Model):
@@ -447,7 +456,8 @@ class Recipe(models.Model):
     """
     D17 — chef's recipe card: production spec + method in one.
     ingredients: [{name, qty, unit, note}] · method: [step, …] ·
-    allergens: UK-14 names present. Companion drafts, chef owns.
+    allergens: canonical UK-14 names present. Empty means allergens not recorded.
+    Companion drafts, chef owns.
     """
 
     class Source(models.TextChoices):
@@ -476,3 +486,10 @@ class Recipe(models.Model):
 
     def __str__(self) -> str:
         return f"Recipe {self.name}"
+
+    def save(self, *args, **kwargs):
+        self.allergens = normalize_allergens(self.allergens, strict=False)
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = set(update_fields) | {"allergens"}
+        super().save(*args, **kwargs)

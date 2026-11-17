@@ -35,7 +35,13 @@ sudo systemctl restart cloudflared
 ## WAF
 
 - Rate limit rule on `/api/v1/auth/*` (login abuse)
-- App already rate-limits login via django-ratelimit
+- App rate-limits login per IP and per username via django-ratelimit
+
+## Internal routes
+
+`/api/internal/*` is not on `/api/v1`, but the tunnel still forwards every path to `127.0.0.1:8000`. The app rejects those requests because they carry `CF-*` or forwarding headers. Do not strip those headers on the tunnel to "make internal routes work" from the public hostname — that is the hole. Hermes and gate scripts call `http://127.0.0.1:8000` directly and do not send those headers.
+
+`/api/internal/intelligence/assign` also needs `X-Internal-Token: $INTERNAL_API_TOKEN` (16+ characters). Leave it unset and the route stays closed.
 
 ## Admin static
 
