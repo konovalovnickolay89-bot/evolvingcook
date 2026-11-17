@@ -117,7 +117,7 @@ def draft_recipe(request: HttpRequest, body: DraftIn):
     try:
         return 200, companion.draft_recipe(body.prompt, body.covers)
     except companion.CompanionError as exc:
-        status = 400 if exc.code == "bad_request" else 503
+        status = 400 if exc.code in {"bad_request", "llm_rejected"} else 503
         return status, {"detail": str(exc), "code": exc.code}
 
 
