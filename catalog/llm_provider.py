@@ -8,6 +8,7 @@ LLM output is raw text/JSON only — never writes domain state.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from typing import Any, Sequence
@@ -53,6 +54,10 @@ _LARGE_COMPLETION_CEILING = 262_144
 _DEFAULT_COMPLETION_CEILING = 32_768
 TEMPERATURE_MIN = 0.0
 TEMPERATURE_MAX = 1.5  # ChatCompletionRequest.temperature.maximum
+# Greedy sampling (temperature == 0) is rejected unless top_p is exactly 1
+# (HTTP 400, type=invalid_request_greedy_sampling, code=3054). Otherwise
+# top_p is a nucleus mass in (0, 1].
+TOP_P_MAX = 1.0
 
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _BEARER_RE = re.compile(r"Bearer\s+\S+", re.IGNORECASE)
@@ -181,6 +186,44 @@ def clamp_temperature(value: Any) -> float:
     if temp != temp:  # NaN
         return 0.0
     return max(TEMPERATURE_MIN, min(TEMPERATURE_MAX, temp))
+
+
+def _finite_number(value: Any) -> float | None:
+    """A JSON number. Bools are ints in Python and are not sampling weights."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    if number != number or math.isinf(number):
+        return None
+    return number
+
+
+def clamp_top_p(value: Any, *, temperature: float) -> float:
+    """Nucleus mass that is legal for this temperature.
+
+    Effective temperature 0 is greedy sampling: Mistral requires top_p of
+    exactly 1, whatever was passed. Any other temperature clamps a passed
+    or defaulted top_p into (0, 1].
+    """
+    if temperature == 0:
+        return 1.0
+    if isinstance(value, str):
+        try:
+            parsed: float | None = float(value.strip())
+        except ValueError:
+            parsed = None
+        else:
+            if parsed != parsed or math.isinf(parsed):
+                parsed = None
+    else:
+        parsed = _finite_number(value)
+    if parsed is None:
+        return 1.0
+    if parsed > TOP_P_MAX:
+        return TOP_P_MAX
+    if parsed <= 0:
+        return math.nextafter(0.0, 1.0)
+    return parsed
 
 
 def _content_present(content: Any) -> bool:
@@ -383,6 +426,7 @@ def mistral_payload_issues(body: dict[str, Any]) -> list[str]:
     else:
         model_ok = True
     temp = body.get("temperature")
+    greedy = False
     if temp is not None:
         try:
             parsed = float(temp)
@@ -391,6 +435,18 @@ def mistral_payload_issues(body: dict[str, Any]) -> list[str]:
         else:
             if parsed != parsed or parsed < TEMPERATURE_MIN or parsed > TEMPERATURE_MAX:
                 issues.append("temperature")
+            elif parsed == 0:
+                greedy = True
+    # Missing top_p is how temperature 0 used to 400 (code 3054): the server
+    # default on large models is not 1. A present top_p must sit in (0, 1],
+    # and must be exactly 1 while sampling is greedy.
+    if "top_p" in body or greedy:
+        nucleus = _finite_number(body.get("top_p"))
+        if greedy:
+            if nucleus != 1:
+                issues.append("top_p")
+        elif nucleus is None or nucleus <= 0 or nucleus > TOP_P_MAX:
+            issues.append("top_p")
     max_tokens = body.get("max_tokens")
     messages = body.get("messages")
     if max_tokens is not None and (
@@ -496,6 +552,7 @@ def build_chat_body(
     messages: Sequence[Any] | None = None,
     max_tokens: int | None = None,
     temperature: Any = 0,
+    top_p: Any = 1,
 ) -> dict[str, Any]:
     """Payload that satisfies Mistral chat-completions validation."""
     model_name = resolve_model(model)
@@ -522,9 +579,11 @@ def build_chat_body(
         prompt = estimate_tokens(normalised)
         room = max(1, context - prompt - 32)
     capped = max(1, min(requested, room))
+    effective_temperature = clamp_temperature(temperature)
     body = {
         "model": model_name,
-        "temperature": clamp_temperature(temperature),
+        "temperature": effective_temperature,
+        "top_p": clamp_top_p(top_p, temperature=effective_temperature),
         "max_tokens": capped,
         "response_format": {"type": "json_object"},
         "messages": normalised,
@@ -549,6 +608,7 @@ def chat_completion_json(
     messages: Sequence[Any] | None = None,
     max_tokens: int | None = None,
     temperature: Any = 0,
+    top_p: Any = 1,
 ) -> str:
     """
     OpenAI-compatible chat completions via Mistral httpx.
@@ -595,6 +655,7 @@ def chat_completion_json(
         messages=messages,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
     )
     headers = {
         "Authorization": f"Bearer {key}",
